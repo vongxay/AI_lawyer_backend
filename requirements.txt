@@ -7,4 +7,6 @@ httpx
 redis
 pyjwt
 cryptography
+yarl
+pyiceberg
 
