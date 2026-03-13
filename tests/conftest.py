@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.services.llm_service import LlmResult
+from services.llm_service import LlmResult
 
 
 # ── Async backend ──────────────────────────────────────────────────────────────

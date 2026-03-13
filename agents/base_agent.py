@@ -25,10 +25,10 @@ from tenacity import (
     wait_exponential,
 )
 
-from backend.core.config import get_settings
-from backend.core.exceptions import AgentTimeoutError, ExternalServiceError
-from backend.core.logging import get_logger
-from backend.services.llm_service import LlmResult, LlmService, Message
+from core.config import get_settings
+from core.exceptions import AgentTimeoutError, ExternalServiceError
+from core.logging import get_logger
+from services.llm_service import LlmResult, LlmService, Message
 
 T = TypeVar("T")
 log = get_logger(__name__)

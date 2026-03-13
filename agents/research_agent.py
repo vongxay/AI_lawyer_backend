@@ -19,13 +19,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from backend.agents.base_agent import BaseAgent
-from backend.core.config import get_settings
-from backend.core.logging import get_logger
-from backend.rag.embedder import Embedder
-from backend.rag.graph_expander import GraphExpander
-from backend.rag.reranker import Reranker
-from backend.rag.retriever import Retriever
+from agents.base_agent import BaseAgent
+from core.config import get_settings
+from core.logging import get_logger
+from rag.embedder import Embedder
+from rag.graph_expander import GraphExpander
+from rag.reranker import Reranker
+from rag.retriever import Retriever
 
 log = get_logger(__name__)
 

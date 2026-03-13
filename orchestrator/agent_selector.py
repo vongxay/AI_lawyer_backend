@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from backend.orchestrator.query_classifier import QueryType
+from orchestrator.query_classifier import QueryType
 
 
 @dataclass(frozen=True)

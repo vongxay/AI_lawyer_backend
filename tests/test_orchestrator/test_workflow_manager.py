@@ -15,8 +15,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.agents.base_agent import AgentResult
-from backend.orchestrator.workflow_manager import WorkflowManager
+from agents.base_agent import AgentResult
+from orchestrator.workflow_manager import WorkflowManager
 
 
 def _make_research_result() -> AgentResult:

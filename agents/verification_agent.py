@@ -20,9 +20,9 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
-from backend.agents.base_agent import BaseAgent
-from backend.core.config import get_settings
-from backend.core.logging import get_logger
+from agents.base_agent import BaseAgent
+from core.config import get_settings
+from core.logging import get_logger
 
 if TYPE_CHECKING:
     from supabase import AsyncClient  # pragma: no cover

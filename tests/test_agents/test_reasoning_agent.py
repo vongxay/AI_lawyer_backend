@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.agents.reasoning_agent import IracReasoningAgent
-from backend.services.llm_service import LlmResult
+from agents.reasoning_agent import IracReasoningAgent
+from services.llm_service import LlmResult
 
 
 VALID_IRAC_JSON = json.dumps({

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.services.pii_service import PiiService
+from services.pii_service import PiiService
 
 
 @pytest.fixture

@@ -9,10 +9,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from backend.api.schemas import CaseMemoryResponse, TimelineEntry
-from backend.core.database import get_redis, get_supabase
-from backend.core.security import CurrentUser, require_roles
-from backend.memory.case_memory import CaseMemoryService
+from api.schemas import CaseMemoryResponse, TimelineEntry
+from core.database import get_redis, get_supabase
+from core.security import CurrentUser, require_roles
+from memory.case_memory import CaseMemoryService
 
 router = APIRouter(prefix="/api/v1/memory", tags=["memory"])
 AuthUser = Annotated[CurrentUser, Depends(require_roles("client", "lawyer", "admin"))]

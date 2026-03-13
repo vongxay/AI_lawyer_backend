@@ -17,7 +17,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from backend.core.logging import get_logger
+from core.logging import get_logger
 
 if TYPE_CHECKING:
     from supabase import AsyncClient  # pragma: no cover

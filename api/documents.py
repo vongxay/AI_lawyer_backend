@@ -7,14 +7,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
-from backend.api.dependencies import WorkflowDep
-from backend.api.schemas import DocumentAnalysisResponse
-from backend.core.config import get_settings
-from backend.core.exceptions import FileTooLargeError, UnsupportedFileTypeError
-from backend.core.security import get_optional_user
+from api.dependencies import WorkflowDep
+from api.schemas import DocumentAnalysisResponse
+from core.config import get_settings
+from core.exceptions import FileTooLargeError, UnsupportedFileTypeError
+from core.security import get_optional_user
 from fastapi import Depends
 from typing import Annotated
-from backend.core.security import CurrentUser
+from core.security import CurrentUser
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 OptionalUser = Annotated[CurrentUser | None, Depends(get_optional_user)]

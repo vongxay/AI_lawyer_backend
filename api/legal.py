@@ -18,15 +18,15 @@ from typing import Annotated, AsyncIterator
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
-from backend.api.dependencies import WorkflowDep
-from backend.api.schemas import (
+from api.dependencies import WorkflowDep
+from api.schemas import (
     DraftRequest,
     LegalQueryRequest,
     LegalQueryResponse,
     VerifyCitationsRequest,
 )
-from backend.core.database import get_supabase
-from backend.core.security import CurrentUser, get_optional_user, require_roles
+from core.database import get_supabase
+from core.security import CurrentUser, get_optional_user, require_roles
 
 router = APIRouter(prefix="/api/v1/legal", tags=["legal"])
 

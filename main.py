@@ -20,16 +20,16 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.api import admin as admin_router
-from backend.api import documents as documents_router
-from backend.api import evidence as evidence_router
-from backend.api import feedback as feedback_router
-from backend.api import legal as legal_router
-from backend.api import memory as memory_router
-from backend.core.config import get_settings
-from backend.core.database import close_connections, ping_redis, ping_supabase
-from backend.core.exceptions import register_exception_handlers
-from backend.core.logging import configure_logging, get_logger
+from api import admin as admin_router
+from api import documents as documents_router
+from api import evidence as evidence_router
+from api import feedback as feedback_router
+from api import legal as legal_router
+from api import memory as memory_router
+from core.config import get_settings
+from core.database import close_connections, ping_redis, ping_supabase
+from core.exceptions import register_exception_handlers
+from core.logging import configure_logging, get_logger
 
 log = get_logger(__name__)
 

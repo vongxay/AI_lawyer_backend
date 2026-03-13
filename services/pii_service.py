@@ -13,7 +13,7 @@ import hashlib
 import re
 from dataclasses import dataclass
 
-from backend.core.logging import get_logger
+from core.logging import get_logger
 
 log = get_logger(__name__)
 

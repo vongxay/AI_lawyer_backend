@@ -20,8 +20,8 @@ import json
 import time
 from typing import TYPE_CHECKING, Any
 
-from backend.core.config import get_settings
-from backend.core.logging import get_logger
+from core.config import get_settings
+from core.logging import get_logger
 
 if TYPE_CHECKING:
     import redis.asyncio as aioredis

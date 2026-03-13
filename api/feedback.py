@@ -9,10 +9,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from backend.api.schemas import FeedbackRequest
-from backend.core.database import get_supabase
-from backend.core.logging import get_logger
-from backend.core.security import CurrentUser, get_optional_user
+from api.schemas import FeedbackRequest
+from core.database import get_supabase
+from core.logging import get_logger
+from core.security import CurrentUser, get_optional_user
 
 router = APIRouter(prefix="/api/v1/feedback", tags=["feedback"])
 log = get_logger(__name__)

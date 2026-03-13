@@ -10,9 +10,9 @@ import hashlib
 import json
 from typing import TYPE_CHECKING
 
-from backend.core.config import get_settings
-from backend.core.logging import get_logger
-from backend.services.llm_service import EmbeddingResult, EmbeddingService
+from core.config import get_settings
+from core.logging import get_logger
+from services.llm_service import EmbeddingResult, EmbeddingService
 
 if TYPE_CHECKING:
     import redis.asyncio as aioredis

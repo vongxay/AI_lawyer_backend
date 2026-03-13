@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.agents.base_agent import AgentResult
-from backend.main import create_app
-from backend.orchestrator.workflow_manager import OrchestrationResult
+from agents.base_agent import AgentResult
+from main import create_app
+from orchestrator.workflow_manager import OrchestrationResult
 
 
 def _mock_orchestration_result() -> OrchestrationResult:
@@ -61,7 +61,7 @@ def client():
         agent_name="verification",
     ))
 
-    from backend.api.dependencies import get_workflow_manager
+    from api.dependencies import get_workflow_manager
     app.dependency_overrides[get_workflow_manager] = lambda: mock_workflow
 
     # Skip DB connections

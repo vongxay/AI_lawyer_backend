@@ -24,8 +24,8 @@ import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from backend.core.config import get_settings
-from backend.core.logging import get_logger
+from core.config import get_settings
+from core.logging import get_logger
 
 log = get_logger(__name__)
 

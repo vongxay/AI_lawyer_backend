@@ -18,9 +18,9 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from backend.agents.base_agent import BaseAgent
-from backend.core.config import get_settings
-from backend.core.logging import get_logger
+from agents.base_agent import BaseAgent
+from core.config import get_settings
+from core.logging import get_logger
 
 log = get_logger(__name__)
 

@@ -4,7 +4,7 @@ core/logging.py
 Structured JSON logging via structlog.
 
 Usage:
-    from backend.core.logging import get_logger
+    from core.logging import get_logger
     log = get_logger(__name__)
     log.info("agent.started", agent="research", query_len=42)
 """

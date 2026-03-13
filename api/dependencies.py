@@ -16,9 +16,9 @@ from typing import Annotated
 
 from fastapi import Depends
 
-from backend.core.database import get_redis, get_supabase
-from backend.orchestrator.workflow_manager import WorkflowManager
-from backend.services.audit_service import AuditService, ExpertQueueService
+from core.database import get_redis, get_supabase
+from orchestrator.workflow_manager import WorkflowManager
+from services.audit_service import AuditService, ExpertQueueService
 
 # ── Singletons (app-level, not request-level) ─────────────────────────────────
 

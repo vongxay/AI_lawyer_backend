@@ -15,11 +15,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from backend.api.dependencies import AuditDep, ExpertQueueDep
-from backend.api.schemas import IngestRequest
-from backend.core.database import get_supabase
-from backend.core.logging import get_logger
-from backend.core.security import CurrentUser, require_roles
+from api.dependencies import AuditDep, ExpertQueueDep
+from api.schemas import IngestRequest
+from core.database import get_supabase
+from core.logging import get_logger
+from core.security import CurrentUser, require_roles
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 log = get_logger(__name__)

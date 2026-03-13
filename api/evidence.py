@@ -9,12 +9,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, UploadFile
 
-from backend.agents.evidence_agent import EvidenceFile
-from backend.api.dependencies import WorkflowDep
-from backend.api.schemas import EvidenceAnalysisResponse
-from backend.core.config import get_settings
-from backend.core.exceptions import FileTooLargeError, UnsupportedFileTypeError
-from backend.core.security import CurrentUser, get_optional_user
+from agents.evidence_agent import EvidenceFile
+from api.dependencies import WorkflowDep
+from api.schemas import EvidenceAnalysisResponse
+from core.config import get_settings
+from core.exceptions import FileTooLargeError, UnsupportedFileTypeError
+from core.security import CurrentUser, get_optional_user
 
 router = APIRouter(prefix="/api/v1/evidence", tags=["evidence"])
 OptionalUser = Annotated[CurrentUser | None, Depends(get_optional_user)]

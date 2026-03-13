@@ -31,20 +31,20 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from backend.agents.document_agent import DocumentAnalysisAgent
-from backend.agents.evidence_agent import EvidenceAnalyzerAgent, EvidenceFile
-from backend.agents.reasoning_agent import IracReasoningAgent
-from backend.agents.research_agent import LegalResearchAgent
-from backend.agents.risk_strategy_agent import RiskStrategyAgent
-from backend.agents.verification_agent import CitationVerificationAgent
-from backend.core.config import get_settings
-from backend.core.exceptions import LowConfidenceError
-from backend.core.logging import get_logger
-from backend.memory.case_memory import CaseMemoryService
-from backend.orchestrator.agent_selector import AgentSelector
-from backend.orchestrator.query_classifier import QueryClassifier
-from backend.services.audit_service import AuditService, ExpertQueueService
-from backend.services.pii_service import PiiService
+from agents.document_agent import DocumentAnalysisAgent
+from agents.evidence_agent import EvidenceAnalyzerAgent, EvidenceFile
+from agents.reasoning_agent import IracReasoningAgent
+from agents.research_agent import LegalResearchAgent
+from agents.risk_strategy_agent import RiskStrategyAgent
+from agents.verification_agent import CitationVerificationAgent
+from core.config import get_settings
+from core.exceptions import LowConfidenceError
+from core.logging import get_logger
+from memory.case_memory import CaseMemoryService
+from orchestrator.agent_selector import AgentSelector
+from orchestrator.query_classifier import QueryClassifier
+from services.audit_service import AuditService, ExpertQueueService
+from services.pii_service import PiiService
 
 if TYPE_CHECKING:
     from supabase import AsyncClient  # pragma: no cover
@@ -286,7 +286,7 @@ class WorkflowManager:
 
     async def _noop(self):
         """Placeholder coroutine when an agent is not needed."""
-        from backend.agents.base_agent import AgentResult
+        from agents.base_agent import AgentResult
         return AgentResult(data={}, agent_name="noop")
 
     def _build_response(

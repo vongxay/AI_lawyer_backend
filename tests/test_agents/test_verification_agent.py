@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.agents.verification_agent import CitationVerificationAgent
-from backend.services.llm_service import LlmResult
+from agents.verification_agent import CitationVerificationAgent
+from services.llm_service import LlmResult
 
 
 @pytest.fixture
