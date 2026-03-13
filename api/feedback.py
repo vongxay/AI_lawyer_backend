@@ -1,20 +1,44 @@
+"""
+api/feedback.py
+===============
+User feedback collection endpoint.
+"""
 from __future__ import annotations
 
-from fastapi import APIRouter
-from pydantic import BaseModel, Field
+from typing import Annotated
 
+from fastapi import APIRouter, Depends
+
+from backend.api.schemas import FeedbackRequest
+from backend.core.database import get_supabase
+from backend.core.logging import get_logger
+from backend.core.security import CurrentUser, get_optional_user
 
 router = APIRouter(prefix="/api/v1/feedback", tags=["feedback"])
+log = get_logger(__name__)
+OptionalUser = Annotated[CurrentUser | None, Depends(get_optional_user)]
 
 
-class FeedbackRequest(BaseModel):
-    session_id: str = Field(min_length=1)
-    rating: int = Field(ge=1, le=5)
-    comment: str | None = None
-    corrected_answer: str | None = None
+@router.post("/", summary="Submit feedback on a legal query response")
+async def submit_feedback(
+    payload: FeedbackRequest,
+    user: OptionalUser,
+) -> dict:
+    supabase = await get_supabase()
 
+    entry = {
+        "session_id": payload.session_id,
+        "user_id": user.sub if user else None,
+        "rating": payload.rating,
+        "comment": payload.comment,
+        "corrected_answer": payload.corrected_answer,
+    }
 
-@router.post("/")
-async def submit_feedback(payload: FeedbackRequest) -> dict:
-    return {"status": "ok", "received": payload.model_dump()}
+    if supabase:
+        try:
+            await supabase.table("feedback").insert(entry).execute()
+        except Exception as exc:
+            log.warning("feedback.persist.failed", error=str(exc))
 
+    log.info("feedback.received", session_id=payload.session_id, rating=payload.rating)
+    return {"status": "ok", "session_id": payload.session_id}
