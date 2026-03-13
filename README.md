@@ -1,6 +1,10 @@
 # ⚖️ AI Lawyer Backend — v2.0
 
 > **Multi-Agent RAG + IRAC Legal Reasoning | FastAPI | Production-Ready**
+>
+> **Status:** ✅ **PRODUCTION READY** - See [PRODUCTION_READINESS_REPORT.md](PRODUCTION_READINESS_REPORT.md)
+>
+> **Quick Start:** See [QUICKSTART.md](QUICKSTART.md) to get running in 5 minutes
 
 ---
 
@@ -50,45 +54,29 @@
 
 ---
 
-## Quick Start
+## 🚀 Quick Start
 
-### Prerequisites
-- Python 3.11+
-- Redis 7+
-- Supabase project (or run fully in stub/dev mode without it)
-
-### Local Development
+**Get running in 5 minutes!** See [QUICKSTART.md](QUICKSTART.md) for step-by-step instructions.
 
 ```bash
-# 1. Clone and enter project
-git clone <repo> && cd ai-lawyer-backend
+# 1. Free up port 8000 (if needed)
+taskkill /PID 6896 /F
 
-# 2. Create virtual environment
-python -m venv .venv && source .venv/bin/activate
+# 2. Install dependencies
+pip install -r requirements.txt
 
-# 3. Install dependencies
-pip install -e ".[dev]"
+# 3. Start Redis (optional)
+docker run -d -p 6379:6379 redis:7-alpine
 
 # 4. Configure environment
 cp .env.example .env
-# Edit .env — add your API keys
+# Edit .env with your API keys
 
-# 5. Start Redis
-docker run -d -p 6379:6379 redis:7-alpine
-
-# 6. Run the server
-uvicorn backend.main:app --reload --port 8000
+# 5. Start server
+python -m uvicorn main:app --reload
 ```
 
-The API will be available at `http://localhost:8000`  
-Interactive docs: `http://localhost:8000/docs`
-
-### Docker Compose (recommended)
-
-```bash
-cp .env.example .env  # fill in API keys
-docker compose up --build
-```
+For complete deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ---
 
@@ -134,7 +122,16 @@ backend/
 └── services/
     ├── llm_service.py         # Anthropic + OpenAI abstraction + retry
     ├── pii_service.py         # PII detection + redaction (Thai/EN)
+    ├── cache_service.py       # Redis caching with TTL management
     └── audit_service.py       # Audit trail + expert review queue
+
+tests/                         # Test suite
+├── test_agents/
+├── test_api/
+└── test_orchestrator/
+
+middleware/                    # NEW: Middleware components
+└── rate_limiter.py           # Rate limiting with Redis backend
 ```
 
 ---

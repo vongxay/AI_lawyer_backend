@@ -1,7 +1,12 @@
-# ── Dockerfile ────────────────────────────────────────────────────────────────
-# Multi-stage build: slim production image
-FROM python:3.11-slim AS base
+# =============================================================================
+# AI Lawyer Backend - Production Dockerfile
+# Multi-stage build for minimal image size
+# Python 3.11 slim Debian base
+# =============================================================================
 
+FROM python:3.11-slim as builder
+
+# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -9,40 +14,49 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# ── Dependencies stage ────────────────────────────────────────────────────────
-FROM base AS deps
-
+# Install system dependencies required for building
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
+    build-essential \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml .
-RUN pip install --upgrade pip \
-    && pip install -e ".[dev]"
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
 
-# ── Production stage ──────────────────────────────────────────────────────────
-FROM base AS production
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 \
-    && rm -rf /var/lib/apt/lists/*
+# =============================================================================
+# Runtime stage
+# =============================================================================
+FROM python:3.11-slim as runtime
 
-# Create non-root user
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+# Create non-root user for security
+RUN groupadd --gid 1000 appuser && \
+    useradd --uid 1000 --gid appuser --shell /bin/bash --create-home appuser
 
-COPY --from=deps /usr/local/lib/python3.11 /usr/local/lib/python3.11
-COPY --from=deps /usr/local/bin /usr/local/bin
+WORKDIR /app
 
-COPY backend/ ./backend/
-COPY pyproject.toml .
+# Copy wheels from builder and install
+COPY --from=builder /wheels /wheels
+RUN pip install --no-cache /wheels/* && rm -rf /wheels
 
-RUN chown -R appuser:appuser /app
+# Copy application code
+COPY --chown=appuser:appuser . .
+
+# Set environment variables
+ENV PATH="/home/appuser/.local/bin:$PATH" \
+    APP_ENV=production \
+    PYTHONPATH=/app
+
+# Switch to non-root user
 USER appuser
 
+# Expose port
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import httpx; httpx.get('http://localhost:8000/health', timeout=5).raise_for_status()"
 
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# Run with gunicorn + uvicorn workers for production
+CMD ["gunicorn", "main:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--timeout", "120"]

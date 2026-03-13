@@ -16,6 +16,12 @@ import time
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
+try:
+    import sentry_sdk
+    SENTRY_AVAILABLE = True
+except ImportError:
+    SENTRY_AVAILABLE = False
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -27,9 +33,10 @@ from api import feedback as feedback_router
 from api import legal as legal_router
 from api import memory as memory_router
 from core.config import get_settings
-from core.database import close_connections, ping_redis, ping_supabase
+from core.database import close_connections, get_redis, ping_redis, ping_supabase
 from core.exceptions import register_exception_handlers
 from core.logging import configure_logging, get_logger
+from middleware.rate_limiter import RateLimiterMiddleware
 
 log = get_logger(__name__)
 
@@ -40,6 +47,19 @@ log = get_logger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     configure_logging(settings.log_level)
+
+    # Initialize Sentry for production error tracking
+    if settings.is_production() and SENTRY_AVAILABLE and settings.sentry_dsn:
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            traces_sample_rate=0.1,  # 10% sampling for performance monitoring
+            profiles_sample_rate=0.1,
+            environment=settings.app_env,
+            release=f"ai-lawyer@{settings.app_version}",
+        )
+        log.info("sentry.initialized")
+    elif settings.is_production() and not SENTRY_AVAILABLE:
+        log.warning("sentry.not_installed", reason="sentry-sdk not installed but running in production")
 
     log.info(
         "app.startup",
@@ -109,6 +129,10 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
     )
+    
+    # Rate limiting middleware (lazy initialization - doesn't need Redis at startup)
+    app.add_middleware(RateLimiterMiddleware, redis=None)
+    
     app.middleware("http")(_request_logging_middleware)
 
     # ── Exception handlers ─────────────────────────────────────────────────────

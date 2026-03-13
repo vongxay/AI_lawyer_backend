@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     jwt_refresh_ttl_seconds: int = 604_800      # 7 days
     rate_limit_per_minute: int = 20
 
+    # ── Monitoring & Observability ─────────────────────────────────────────────
+    sentry_dsn: str | None = None
+
     @field_validator("jwt_secret")
     @classmethod
     def jwt_secret_strength(cls, v: str, info: object) -> str:  # noqa: ARG003
