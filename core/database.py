@@ -43,6 +43,9 @@ async def get_redis() -> aioredis.Redis:
             settings.redis_url,
             max_connections=settings.redis_max_connections,
             decode_responses=True,
+            socket_connect_timeout=settings.redis_socket_timeout_seconds,
+            socket_timeout=settings.redis_socket_timeout_seconds,
+            retry_on_timeout=False,
         )
         log.info("redis.pool.created", url=settings.redis_url)
     return aioredis.Redis(connection_pool=_redis_pool)

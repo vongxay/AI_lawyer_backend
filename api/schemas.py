@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 
 # ── Shared primitives ──────────────────────────────────────────────────────────
@@ -101,9 +101,18 @@ class RiskAnalysis(BaseModel):
 # ── Request schemas ────────────────────────────────────────────────────────────
 
 class LegalQueryRequest(BaseModel):
-    question: str = Field(min_length=3, max_length=5000)
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    question: str = Field(
+        min_length=3,
+        max_length=5000,
+        validation_alias=AliasChoices("question", "query"),
+    )
     case_id: str | None = None
     jurisdiction: str | None = None
+    model_id: str | None = None
+    include_irac: bool = True
+    include_citations: bool = True
 
     @field_validator("question")
     @classmethod
@@ -112,14 +121,30 @@ class LegalQueryRequest(BaseModel):
 
 
 class DraftRequest(BaseModel):
-    prompt: str = Field(min_length=10, max_length=3000)
-    document_type: str | None = None
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    prompt: str = Field(
+        min_length=10,
+        max_length=3000,
+        validation_alias=AliasChoices("prompt", "context"),
+    )
+    document_type: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("document_type", "type"),
+    )
     jurisdiction: str | None = None
     language: Literal["TH", "EN", "LA"] = "TH"
 
 
 class VerifyCitationsRequest(BaseModel):
     citations: list[CitationItem] = Field(min_length=1, max_length=50)
+
+    @field_validator("citations", mode="before")
+    @classmethod
+    def normalise_citations(cls, v: Any) -> Any:
+        if isinstance(v, list):
+            return [{"ref": item} if isinstance(item, str) else item for item in v]
+        return v
 
 
 class FeedbackRequest(BaseModel):

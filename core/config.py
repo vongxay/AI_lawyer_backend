@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     app_name: str = "ai-lawyer-backend"
     app_version: str = "2.0.0"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
-    debug: bool = False
+    debug: bool = Field(default=False, alias="APP_DEBUG")
 
     # ── CORS ───────────────────────────────────────────────────────────────────
     allowed_origins_raw: str = Field(
@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     # ── Cache — Redis ──────────────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
     redis_max_connections: int = 20
+    redis_socket_timeout_seconds: float = 0.5
     cache_ttl_embedding_seconds: int = 86_400   # 24h
     cache_ttl_legal_qa_seconds: int = 3_600     # 1h
     cache_ttl_law_summary_seconds: int = 21_600 # 6h
@@ -96,6 +97,7 @@ class Settings(BaseSettings):
 
     # ── Storage ────────────────────────────────────────────────────────────────
     max_upload_size_mb: int = 50
+    max_request_body_mb: int = 55
     allowed_upload_types: str = "application/pdf,image/jpeg,image/png,image/webp,audio/mpeg,audio/wav,audio/mp4,video/mp4"
 
     @property
@@ -106,6 +108,11 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def warn_missing_secrets(self) -> "Settings":
         if self.app_env == "production":
+            if self.jwt_secret == "change-me-in-production-min-32-chars!!" or len(self.jwt_secret) < 32:
+                raise ValueError("Production requires JWT_SECRET with at least 32 characters")
+            if "*" in self.cors_origins:
+                raise ValueError("Production CORS must not allow '*' when credentials are enabled")
+
             missing = [
                 name
                 for name, val in [

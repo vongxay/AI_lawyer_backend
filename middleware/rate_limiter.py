@@ -89,6 +89,8 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         self._in_memory = InMemoryRateLimiter()
         self._default_limit = default_limit or self._settings.rate_limit_per_minute
         self._window = window_seconds
+        self._redis_probe_after = 0.0
+        self._redis_retry_cooldown = 30.0
 
         # Endpoint-specific limits (override default)
         self._endpoint_limits: dict[str, int] = {
@@ -161,14 +163,33 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
 
     async def _check_rate_limit(self, key: str, limit: int) -> RateLimitResult:
         """Check rate limit using Redis or fallback."""
+        await self._ensure_redis()
+
         if self._redis:
             try:
                 return await self._redis_check(key, limit)
             except Exception as exc:
                 log.warning("rate_limit.redis.failed", error=str(exc))
+                self._redis = None
+                self._redis_probe_after = time.time() + self._redis_retry_cooldown
                 # Fall through to in-memory
 
         return await self._in_memory.check(key, limit, self._window)
+
+    async def _ensure_redis(self) -> None:
+        if self._redis or time.time() < self._redis_probe_after:
+            return
+
+        try:
+            from core.database import get_redis
+
+            redis = await get_redis()
+            await redis.ping()
+            self._redis = redis
+            log.info("rate_limit.redis.enabled")
+        except Exception as exc:
+            self._redis_probe_after = time.time() + self._redis_retry_cooldown
+            log.warning("rate_limit.redis.unavailable", error=str(exc))
 
     async def _redis_check(self, key: str, limit: int) -> RateLimitResult:
         """Redis-based rate limiting using sliding window."""

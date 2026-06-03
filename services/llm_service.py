@@ -283,6 +283,12 @@ class EmbeddingService:
         self._api_key = settings.openai_api_key
         self._model_en = settings.embedding_model_en
         self._dims = settings.embedding_dims
+        self._client = None
+
+        if self._api_key:
+            import openai
+
+            self._client = openai.AsyncOpenAI(api_key=self._api_key)
 
     async def embed(self, text: str, *, multilingual: bool = False) -> EmbeddingResult:
         if not self._api_key:
@@ -291,11 +297,9 @@ class EmbeddingService:
             val = float((sum(text.encode()) % 1000) / 1000.0)
             return EmbeddingResult(vector=[val] * dim, model="stub-embedding")
 
-        import openai
-        client = openai.AsyncOpenAI(api_key=self._api_key)
         settings = get_settings()
         model = settings.embedding_model_multilingual if multilingual else self._model_en
-        response = await client.embeddings.create(input=text, model=model)
+        response = await self._client.embeddings.create(input=text, model=model)
         data = response.data[0]
         return EmbeddingResult(
             vector=data.embedding,

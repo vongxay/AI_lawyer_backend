@@ -26,6 +26,8 @@ Key fixes from original codebase:
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -44,6 +46,7 @@ from memory.case_memory import CaseMemoryService
 from orchestrator.agent_selector import AgentSelector
 from orchestrator.query_classifier import QueryClassifier
 from services.audit_service import AuditService, ExpertQueueService
+from services.cache_service import CacheService
 from services.pii_service import PiiService
 
 if TYPE_CHECKING:
@@ -83,6 +86,7 @@ class WorkflowManager:
         self._case_memory = CaseMemoryService(supabase=supabase, redis=redis)
         self._audit = AuditService(supabase=supabase)
         self._expert_queue = ExpertQueueService(supabase=supabase)
+        self._cache = CacheService(redis_client=redis)
 
         # ── Classifiers ───────────────────────────────────────────────────────
         self._classifier = QueryClassifier()
@@ -116,6 +120,29 @@ class WorkflowManager:
         # ── Step 0: PII redaction on all user input ───────────────────────────
         clean_question = self._pii.redact_text(question)
         clean_doc_text = self._pii.redact_text(document_text) if document_text else None
+
+        cache_key = self._build_cache_key(
+            question=clean_question,
+            case_id=case_id,
+            jurisdiction=jurisdiction,
+            user_id=user_id,
+            tenant_id=tenant_id,
+        )
+        cacheable = clean_doc_text is None and not evidence_files
+        if cacheable:
+            cached = await self._cache.get(cache_key, namespace="legal_qa")
+            if cached:
+                processing_ms = int((time.perf_counter() - started) * 1000)
+                response = {**cached["response"], "processing_time_ms": processing_ms, "cached": True}
+                log.info("orchestrator.cache_hit", session_id=sid, cache_key=cache_key)
+                return OrchestrationResult(
+                    response=response,
+                    confidence=float(cached["confidence"]),
+                    agents_used=cached["agents_used"],
+                    processing_time_ms=processing_ms,
+                    escalated_to_expert=bool(cached["escalated_to_expert"]),
+                    session_id=sid,
+                )
 
         # ── Step 1: Load case memory ──────────────────────────────────────────
         memory = await self._case_memory.get(case_id)
@@ -273,6 +300,18 @@ class WorkflowManager:
             escalated=escalated,
         )
 
+        if cacheable and not escalated:
+            await self._cache.set(
+                cache_key,
+                {
+                    "response": response,
+                    "confidence": final_confidence,
+                    "agents_used": agents_used,
+                    "escalated_to_expert": escalated,
+                },
+                namespace="legal_qa",
+            )
+
         return OrchestrationResult(
             response=response,
             confidence=final_confidence,
@@ -288,6 +327,25 @@ class WorkflowManager:
         """Placeholder coroutine when an agent is not needed."""
         from agents.base_agent import AgentResult
         return AgentResult(data={}, agent_name="noop")
+
+    def _build_cache_key(
+        self,
+        *,
+        question: str,
+        case_id: str | None,
+        jurisdiction: str | None,
+        user_id: str | None,
+        tenant_id: str | None,
+    ) -> str:
+        payload = {
+            "question": question,
+            "case_id": case_id,
+            "jurisdiction": jurisdiction,
+            "user_id": user_id,
+            "tenant_id": tenant_id,
+        }
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def _build_response(
         self,

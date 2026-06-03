@@ -2,20 +2,14 @@
 api/legal.py
 ============
 Core legal query endpoints.
-
-Routes:
-    POST /api/v1/legal/query           — Full IRAC response
-    POST /api/v1/legal/query/stream    — SSE streaming response
-    POST /api/v1/legal/draft           — Draft legal document
-    POST /api/v1/legal/citations/verify — Verify citation list
-    GET  /api/v1/legal/graph/{case_no} — Precedent graph for a case
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Annotated, AsyncIterator
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from api.dependencies import WorkflowDep
@@ -26,15 +20,17 @@ from api.schemas import (
     VerifyCitationsRequest,
 )
 from core.database import get_supabase
+from core.logging import get_logger
 from core.security import CurrentUser, get_optional_user, require_roles
 
 router = APIRouter(prefix="/api/v1/legal", tags=["legal"])
+log = get_logger(__name__)
 
 OptionalUser = Annotated[CurrentUser | None, Depends(get_optional_user)]
 AuthUser = Annotated[CurrentUser, Depends(require_roles("client", "lawyer", "admin"))]
 
 
-@router.post("/query", response_model=LegalQueryResponse, summary="Legal query — full IRAC response")
+@router.post("/query", response_model=LegalQueryResponse, summary="Legal query - full IRAC response")
 async def legal_query(
     payload: LegalQueryRequest,
     workflow: WorkflowDep,
@@ -52,29 +48,57 @@ async def legal_query(
 
 @router.post(
     "/query/stream",
-    summary="Legal query — SSE streaming (tokens as they arrive)",
+    summary="Legal query - SSE structured stream",
     response_class=StreamingResponse,
 )
 async def legal_query_stream(
+    request: Request,
     payload: LegalQueryRequest,
     workflow: WorkflowDep,
     user: OptionalUser,
 ) -> StreamingResponse:
     async def event_stream() -> AsyncIterator[str]:
-        # Phase 1: Status tokens (keep client alive during processing)
-        for msg in ["กำลังค้นข้อมูลกฎหมาย...", "กำลังวิเคราะห์ตาม IRAC...", "กำลังตรวจสอบ citation..."]:
-            yield _sse({"type": "status", "message": msg})
+        try:
+            yield _sse("meta", {"status": "started"})
 
-        # Phase 2: Full result
-        result = await workflow.orchestrate(
-            question=payload.question,
-            case_id=payload.case_id,
-            jurisdiction=payload.jurisdiction,
-            user_id=user.sub if user else None,
-            tenant_id=user.tenant_id if user else None,
-        )
-        yield _sse({"type": "result", "data": result.response})
-        yield _sse({"type": "done"})
+            for msg in (
+                "กำลังค้นข้อมูลกฎหมาย...",
+                "กำลังวิเคราะห์ตาม IRAC...",
+                "กำลังตรวจสอบ citation...",
+            ):
+                if await request.is_disconnected():
+                    return
+                yield _sse("token", {"token": msg + "\n"})
+
+            result = await workflow.orchestrate(
+                question=payload.question,
+                case_id=payload.case_id,
+                jurisdiction=payload.jurisdiction,
+                user_id=user.sub if user else None,
+                tenant_id=user.tenant_id if user else None,
+            )
+            response = result.response
+
+            if payload.include_irac:
+                yield _sse("irac", response.get("irac", {}))
+            if payload.include_citations:
+                yield _sse("citations", response.get("citations", []))
+
+            yield _sse("confidence", {"score": response.get("confidence", result.confidence)})
+            yield _sse(
+                "meta",
+                {
+                    "agents_used": response.get("agents_used", result.agents_used),
+                    "processing_time_ms": response.get("processing_time_ms", result.processing_time_ms),
+                    "escalated_to_expert": response.get("escalated_to_expert", result.escalated_to_expert),
+                },
+            )
+            yield _sse("done", {"ok": True})
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.exception("legal.stream.failed", error=str(exc))
+            yield _sse("error", {"message": str(exc)})
 
     return StreamingResponse(
         event_stream(),
@@ -82,6 +106,7 @@ async def legal_query_stream(
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
         },
     )
 
@@ -91,9 +116,11 @@ async def draft_document(
     payload: DraftRequest,
     user: OptionalUser,
 ) -> dict:
-    # Future: invoke DocumentAgent in draft mode
+    content = f"[DRAFT - {payload.document_type or 'document'}]\n\n{payload.prompt}"
     return {
-        "content": f"[DRAFT — {payload.document_type or 'document'}]\n\n{payload.prompt}",
+        "content": content,
+        "document": content,
+        "format": "markdown",
         "language": payload.language,
         "jurisdiction": payload.jurisdiction,
         "disclaimer": "This is a draft template. Review with a qualified lawyer before use.",
@@ -108,7 +135,12 @@ async def verify_citations(
     result = await workflow._verification_agent.run(
         citations=[c.model_dump() for c in payload.citations]
     )
-    return result.data
+    data = result.data
+    return {
+        **data,
+        "verified": data.get("citations_verified", False),
+        "results": data.get("citations", []),
+    }
 
 
 @router.get("/graph/{case_no}", summary="Get precedent chain for a case")
@@ -118,28 +150,32 @@ async def precedent_graph(case_no: str) -> dict:
         return {"case_no": case_no, "nodes": [], "edges": [], "note": "Database not configured"}
 
     try:
-        result = await supabase.table("cases") \
-            .select("id, case_no, court, year") \
-            .eq("case_no", case_no) \
-            .single() \
+        result = await (
+            supabase.table("cases")
+            .select("id, case_no, court, year")
+            .eq("case_no", case_no)
+            .single()
             .execute()
+        )
 
         if not result.data:
             return {"case_no": case_no, "nodes": [], "edges": []}
 
         case_id = result.data["id"]
-        chain = await supabase.rpc("get_precedent_chain", {
-            "start_case_id": case_id, "max_depth": 3
-        }).execute()
+        chain = await supabase.rpc(
+            "get_precedent_chain",
+            {"start_case_id": case_id, "max_depth": 3},
+        ).execute()
 
         return {
             "case_no": case_no,
             "nodes": result.data,
             "edges": chain.data or [],
         }
-    except Exception:
+    except Exception as exc:
+        log.warning("precedent_graph.failed", case_no=case_no, error=str(exc))
         return {"case_no": case_no, "nodes": [], "edges": []}
 
 
-def _sse(data: dict) -> str:
-    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+def _sse(event: str, data: dict | list) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
