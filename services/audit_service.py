@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -83,21 +84,38 @@ class AuditService:
         )
 
         if self._supabase:
+            modern_payload = {
+                "user_id": user_id,
+                "tenant_id": tenant_id,
+                "action": "legal_query",
+                "agents_used": agents_used,
+                "model_used": agent,
+                "query_hash": event.query_hash,
+                "confidence": confidence,
+                "latency_ms": processing_time_ms,
+                "success": True,
+                "escalated": escalated,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            legacy_payload = {
+                "user_id": user_id,
+                "tenant_id": tenant_id,
+                "agent": agent,
+                "query_hash": event.query_hash,
+                "confidence": confidence,
+                "agents_used": agents_used,
+                "processing_time_ms": processing_time_ms,
+                "escalated_to_expert": escalated,
+                "ts": event.ts,
+            }
             try:
-                await self._supabase.table("audit_log").insert({
-                    "user_id": user_id,
-                    "tenant_id": tenant_id,
-                    "agent": agent,
-                    "query_hash": event.query_hash,
-                    "confidence": confidence,
-                    "agents_used": agents_used,
-                    "processing_time_ms": processing_time_ms,
-                    "escalated_to_expert": escalated,
-                    "ts": event.ts,
-                }).execute()
+                await self._supabase.table("audit_log").insert(modern_payload).execute()
             except Exception as exc:
-                # Audit failures must never crash the main flow
-                log.error("audit.persist.failed", error=str(exc))
+                try:
+                    await self._supabase.table("audit_log").insert(legacy_payload).execute()
+                except Exception as legacy_exc:
+                    # Audit failures must never crash the main flow
+                    log.error("audit.persist.failed", error=str(legacy_exc), first_error=str(exc))
 
         return event
 
@@ -117,8 +135,10 @@ class ExpertQueueService:
         reason: str,
         confidence: float,
         query_preview: str,
+        tenant_id: str | None = None,
     ) -> None:
         entry = {
+            "tenant_id": tenant_id,
             "session_id": session_id,
             "user_id": user_id,
             "reason": reason,
@@ -130,24 +150,36 @@ class ExpertQueueService:
         log.warning("expert_queue.added", reason=reason, confidence=confidence)
 
         if self._supabase:
+            modern_entry = {
+                "tenant_id": tenant_id,
+                "session_id": session_id,
+                "flagged_reason": reason,
+                "confidence_at_flag": confidence,
+                "status": "pending",
+                "priority": 5,
+            }
             try:
-                await self._supabase.table("expert_reviews").insert(entry).execute()
+                await self._supabase.table("expert_reviews").insert(modern_entry).execute()
             except Exception as exc:
-                log.error("expert_queue.persist.failed", error=str(exc))
-                self._in_memory.append(entry)
+                try:
+                    await self._supabase.table("expert_reviews").insert(entry).execute()
+                except Exception as legacy_exc:
+                    log.error("expert_queue.persist.failed", error=str(legacy_exc), first_error=str(exc))
+                    self._in_memory.append(entry)
         else:
             self._in_memory.append(entry)
 
     async def list_pending(self) -> list[dict]:
         if self._supabase:
-            try:
-                result = await self._supabase.table("expert_reviews") \
-                    .select("*") \
-                    .eq("status", "pending") \
-                    .order("ts", desc=True) \
-                    .limit(100) \
-                    .execute()
-                return result.data or []
-            except Exception as exc:
-                log.error("expert_queue.list.failed", error=str(exc))
+            for order_column in ("created_at", "ts"):
+                try:
+                    result = await self._supabase.table("expert_reviews") \
+                        .select("*") \
+                        .eq("status", "pending") \
+                        .order(order_column, desc=True) \
+                        .limit(100) \
+                        .execute()
+                    return result.data or []
+                except Exception as exc:
+                    log.error("expert_queue.list.failed", order_column=order_column, error=str(exc))
         return self._in_memory

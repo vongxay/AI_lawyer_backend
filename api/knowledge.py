@@ -5,6 +5,7 @@ Knowledge-base management endpoints for the admin UI.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
@@ -120,6 +121,7 @@ async def create_document(
             tags=payload.tags,
             tenant_id=user.tenant_id or None,
             user_id=user.sub,
+            allow_short_text=True,
         )
     )
     return {"id": result.document_id, **result.__dict__}
@@ -178,15 +180,23 @@ async def review_document(
         return {"status": "skipped", "reason": "database_not_configured"}
 
     review_status = "approved" if payload.action == "approve" else "rejected"
+    reviewed_at = datetime.now(timezone.utc).isoformat()
     for table in ("laws", "cases", "legal_forms"):
         try:
+            updates: dict[str, Any] = {
+                "review_status": review_status,
+                "reviewed_by": user.sub,
+                "reviewed_at": reviewed_at,
+                "review_notes": payload.notes,
+            }
+            if table == "legal_forms":
+                updates["is_active"] = payload.action == "approve"
+            else:
+                updates["status"] = "active" if payload.action == "approve" else "pending"
+
             result = await (
                 supabase.table(table)
-                .update({
-                    "review_status": review_status,
-                    "reviewed_by": user.sub,
-                    "review_notes": payload.notes,
-                })
+                .update(updates)
                 .eq("id", document_id)
                 .execute()
             )
@@ -212,7 +222,10 @@ def _map_document(table: str, fallback_type: str, row: dict[str, Any]) -> dict[s
         text = row.get("full_text") or ""
         year = row.get("year_be") or row.get("year") or 0
 
-    status = row.get("status") or ("active" if row.get("is_active", True) else "archived")
+    review_status = row.get("review_status") or (row.get("metadata") or {}).get("review_status") or "approved"
+    status = "pending" if review_status == "pending_review" else row.get("status") or (
+        "active" if row.get("is_active", True) else "archived"
+    )
     return {
         "id": row.get("id"),
         "title": title,
@@ -225,7 +238,7 @@ def _map_document(table: str, fallback_type: str, row: dict[str, Any]) -> dict[s
         "tags": row.get("tags") or [],
         "hasEmbedding": bool(row.get("embedding")),
         "textLength": len(text),
-        "reviewStatus": row.get("review_status") or "approved",
+        "reviewStatus": review_status,
         "sourceAuthority": row.get("source_authority") or (row.get("metadata") or {}).get("source_authority"),
         "officialSourceUrl": row.get("official_source_url") or row.get("source_url") or (row.get("metadata") or {}).get("official_source_url"),
         "lawNo": row.get("law_no") or (row.get("metadata") or {}).get("law_no"),
@@ -249,7 +262,12 @@ def _map_update(table: str, updates: dict[str, Any]) -> dict[str, Any]:
         if table == "legal_forms":
             mapped["is_active"] = updates["status"] != "archived"
         else:
-            mapped["status"] = "active" if updates["status"] == "indexed" else "draft"
+            if updates["status"] == "indexed":
+                mapped["status"] = "active"
+            elif updates["status"] == "archived":
+                mapped["status"] = "repealed"
+            else:
+                mapped["status"] = "pending"
     if "reviewStatus" in updates:
         mapped["review_status"] = updates["reviewStatus"]
     if "reviewNotes" in updates:

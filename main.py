@@ -29,6 +29,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api import admin as admin_router
+from api import admin_compat as admin_compat_router
+from api import analytics as analytics_router
+from api import auth as auth_router
 from api import billing as billing_router
 from api import documents as documents_router
 from api import evidence as evidence_router
@@ -37,6 +40,7 @@ from api import feedback as feedback_router
 from api import knowledge as knowledge_router
 from api import legal as legal_router
 from api import memory as memory_router
+from api import users as users_router
 from core.config import get_settings
 from core.database import close_connections, ping_redis, ping_supabase
 from core.exceptions import register_exception_handlers
@@ -188,9 +192,13 @@ def create_app() -> FastAPI:
     app.include_router(evidence_router.router)
     app.include_router(memory_router.router)
     app.include_router(feedback_router.router)
+    app.include_router(auth_router.router)
     app.include_router(billing_router.router)
     app.include_router(evaluation_router.router)
     app.include_router(knowledge_router.router)
+    app.include_router(users_router.router)
+    app.include_router(analytics_router.router)
+    app.include_router(admin_compat_router.router)
     app.include_router(admin_router.router)
 
     # ── System endpoints ───────────────────────────────────────────────────────

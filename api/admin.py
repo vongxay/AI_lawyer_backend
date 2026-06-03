@@ -11,12 +11,13 @@ Routes:
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import mimetypes
+from typing import Annotated, Any
 from urllib.parse import urlparse
-from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field, HttpUrl
 
 from api.dependencies import AuditDep, ExpertQueueDep
@@ -41,6 +42,14 @@ class UrlIngestRequest(BaseModel):
     year: int | None = None
     tags: list[str] = Field(default_factory=list)
     review_status: str = "pending_review"
+
+
+class AdminUserUpdate(BaseModel):
+    email: str | None = Field(default=None, max_length=320)
+    full_name: str | None = Field(default=None, max_length=255)
+    role: str | None = Field(default=None, max_length=50)
+    tenant_id: str | None = None
+    is_active: bool | None = None
 
 
 @router.post("/ingest", summary="Queue a document for knowledge base ingestion")
@@ -106,6 +115,23 @@ async def upload_legal_documents(
                 user_id=user.sub,
             )
         )
+        await _record_ingestion_job(
+            supabase=supabase,
+            user=user,
+            result=result.__dict__,
+            source_type="file",
+            file_name=upload.filename or result.title,
+            source_url=source_url,
+            config={
+                "document_type": document_type,
+                "jurisdiction": jurisdiction,
+                "title": title,
+                "year": year,
+                "tags": parsed_tags,
+                "content_type": upload.content_type,
+                "size_bytes": len(content),
+            },
+        )
         results.append(result.__dict__)
 
     return {
@@ -160,8 +186,159 @@ async def ingest_legal_document_url(
             user_id=user.sub,
         )
     )
+    await _record_ingestion_job(
+        supabase=supabase,
+        user=user,
+        result=result.__dict__,
+        source_type="url",
+        file_name=filename,
+        source_url=url,
+        config={
+            "document_type": payload.document_type,
+            "jurisdiction": payload.jurisdiction,
+            "title": payload.title,
+            "year": payload.year,
+            "tags": payload.tags,
+            "content_type": content_type,
+            "size_bytes": len(content),
+        },
+    )
 
     return {"status": result.status, "item": result.__dict__}
+
+
+@router.get("/ingestion", summary="List recent knowledge ingestion jobs")
+async def list_ingestion_jobs(
+    user: AdminUser,
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[dict]:
+    supabase = await get_supabase()
+    if not supabase:
+        return []
+
+    try:
+        query = supabase.table("ingestion_jobs").select("*").order("created_at", desc=True).limit(limit)
+        if user.tenant_id:
+            query = query.eq("tenant_id", user.tenant_id)
+        result = await query.execute()
+        return result.data or []
+    except Exception as exc:
+        log.warning("admin.ingestion_jobs.failed", error=str(exc))
+        return await _synthesise_ingestion_jobs(supabase, limit=limit)
+
+
+@router.delete("/ingestion/{job_id}", summary="Delete an ingestion job record")
+async def delete_ingestion_job(job_id: str, user: AdminUser) -> dict:
+    supabase = await get_supabase()
+    if not supabase:
+        return {"status": "skipped", "reason": "database_not_configured", "id": job_id}
+
+    try:
+        query = supabase.table("ingestion_jobs").delete().eq("id", job_id)
+        if user.tenant_id:
+            query = query.eq("tenant_id", user.tenant_id)
+        result = await query.execute()
+        if result.data:
+            return {"status": "deleted", "id": job_id}
+    except Exception as exc:
+        log.warning("admin.delete_ingestion_job.failed", error=str(exc))
+
+    return {"status": "not_found", "id": job_id}
+
+
+@router.get("/users", summary="List admin users")
+async def list_admin_users(
+    user: AdminUser,
+    limit: int = Query(default=200, ge=1, le=1000),
+) -> list[dict[str, Any]]:
+    supabase = await get_supabase()
+    if not supabase:
+        return []
+
+    users = await _fetch_admin_users(supabase, tenant_id=user.tenant_id, limit=limit)
+    return [_normalise_admin_user(row) for row in users]
+
+
+@router.patch("/users/{user_id}", summary="Update an admin user")
+async def update_admin_user(
+    user_id: str,
+    payload: AdminUserUpdate,
+    user: AdminUser,
+) -> dict[str, Any]:
+    supabase = await get_supabase()
+    if not supabase:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Supabase database is not configured.",
+        )
+
+    updates = payload.model_dump(exclude_unset=True, exclude_none=True)
+    allowed_updates = {
+        key: value
+        for key, value in updates.items()
+        if key in {"email", "full_name", "role", "tenant_id", "is_active"}
+    }
+    if not allowed_updates:
+        existing = await _fetch_admin_user(supabase, user_id)
+        if existing:
+            return _normalise_admin_user(existing)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    attempts = [
+        allowed_updates,
+        {key: value for key, value in allowed_updates.items() if key in {"email", "role", "tenant_id"}},
+    ]
+    for attempt in attempts:
+        if not attempt:
+            continue
+        try:
+            result = await (
+                supabase.table("users")
+                .update(attempt)
+                .eq("id", user_id)
+                .execute()
+            )
+            data = result.data or []
+            if isinstance(data, list) and data:
+                return _normalise_admin_user(data[0])
+            if isinstance(data, dict):
+                return _normalise_admin_user(data)
+        except Exception as exc:
+            log.warning("admin.update_user.failed", fields=list(attempt), error=str(exc))
+
+    existing = await _fetch_admin_user(supabase, user_id)
+    if existing:
+        return _normalise_admin_user(existing)
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+
+@router.delete("/users/{user_id}", summary="Delete an admin user")
+async def delete_admin_user(user_id: str, user: AdminUser) -> dict[str, Any]:
+    if user_id == user.sub:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot delete your own active admin account.",
+        )
+
+    supabase = await get_supabase()
+    if not supabase:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Supabase database is not configured.",
+        )
+
+    try:
+        result = await supabase.table("users").delete().eq("id", user_id).execute()
+        if result.data:
+            return {"status": "deleted", "id": user_id}
+    except Exception as exc:
+        log.warning("admin.delete_user.failed", error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User could not be deleted because it may be referenced by other records.",
+        ) from exc
+
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
 
 @router.get("/audit-log", summary="Read audit trail (last N entries)")
@@ -174,23 +351,41 @@ async def get_audit_log(
     if not supabase:
         return []
 
-    try:
-        result = await supabase.table("audit_log") \
-            .select("*") \
-            .order("ts", desc=True) \
-            .range(offset, offset + limit - 1) \
-            .execute()
-        return result.data or []
-    except Exception as exc:
-        log.error("admin.audit_log.failed", error=str(exc))
-        return []
+    for order_column in ("created_at", "ts"):
+        try:
+            result = await supabase.table("audit_log") \
+                .select("*") \
+                .order(order_column, desc=True) \
+                .range(offset, offset + limit - 1) \
+                .execute()
+            return [_normalise_audit_log(row) for row in (result.data or [])]
+        except Exception as exc:
+            log.error("admin.audit_log.failed", order_column=order_column, error=str(exc))
+    return []
 
 
 @router.get("/expert-queue", summary="List pending human review requests")
 async def get_expert_queue(
     user: AdminUser,
     expert_queue: ExpertQueueDep,
+    limit: int = Query(default=100, ge=1, le=1000),
 ) -> list[dict]:
+    supabase = await get_supabase()
+    if supabase:
+        for order_column in ("priority", "created_at", "ts"):
+            try:
+                query = supabase.table("expert_reviews").select("*").limit(limit)
+                if user.tenant_id:
+                    query = query.eq("tenant_id", user.tenant_id)
+                if order_column == "priority":
+                    query = query.order("priority", desc=False)
+                else:
+                    query = query.order(order_column, desc=True)
+                result = await query.execute()
+                return result.data or []
+            except Exception as exc:
+                log.warning("admin.expert_queue.failed", order_column=order_column, error=str(exc))
+
     return await expert_queue.list_pending()
 
 
@@ -212,3 +407,196 @@ async def resolve_expert_review(
             log.error("admin.resolve.failed", error=str(exc))
 
     return {"status": "resolved", "id": item_id, "resolver": user.sub}
+
+
+async def _fetch_admin_users(
+    supabase: Any,
+    *,
+    tenant_id: str | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    select_attempts = [
+        "id, email, full_name, role, tenant_id, is_active, created_at, updated_at",
+        "id, email, role, tenant_id, created_at",
+        "*",
+    ]
+
+    for columns in select_attempts:
+        try:
+            query = supabase.table("users").select(columns).limit(limit)
+            if tenant_id:
+                query = query.eq("tenant_id", tenant_id)
+            try:
+                query = query.order("created_at", desc=True)
+            except Exception:
+                pass
+            result = await query.execute()
+            return result.data or []
+        except Exception as exc:
+            log.warning("admin.list_users.failed", columns=columns, error=str(exc))
+
+    return []
+
+
+async def _fetch_admin_user(supabase: Any, user_id: str) -> dict[str, Any] | None:
+    select_attempts = [
+        "id, email, full_name, role, tenant_id, is_active, created_at, updated_at",
+        "id, email, role, tenant_id, created_at",
+        "*",
+    ]
+
+    for columns in select_attempts:
+        try:
+            result = await (
+                supabase.table("users")
+                .select(columns)
+                .eq("id", user_id)
+                .limit(1)
+                .execute()
+            )
+            data = result.data or []
+            if isinstance(data, list):
+                return data[0] if data else None
+            return data
+        except Exception as exc:
+            log.warning("admin.fetch_user.failed", columns=columns, error=str(exc))
+
+    return None
+
+
+def _normalise_admin_user(row: dict[str, Any]) -> dict[str, Any]:
+    email = row.get("email") or ""
+    created_at = row.get("created_at") or ""
+    return {
+        "id": str(row.get("id") or ""),
+        "email": email,
+        "full_name": row.get("full_name") or row.get("name") or email or "Admin",
+        "role": row.get("role") or "client",
+        "tenant_id": str(row.get("tenant_id") or ""),
+        "is_active": row.get("is_active") is not False,
+        "created_at": created_at,
+        "updated_at": row.get("updated_at") or created_at,
+        "tenant_name": row.get("tenant_name"),
+    }
+
+
+def _normalise_audit_log(row: dict[str, Any]) -> dict[str, Any]:
+    created_at = row.get("created_at")
+    if not created_at and row.get("ts"):
+        try:
+            created_at = datetime.fromtimestamp(int(row["ts"]), tz=timezone.utc).isoformat()
+        except (TypeError, ValueError, OSError):
+            created_at = ""
+
+    return {
+        **row,
+        "action": row.get("action") or row.get("agent") or "legal_query",
+        "latency_ms": row.get("latency_ms") or row.get("processing_time_ms"),
+        "success": row.get("success") is not False,
+        "escalated": row.get("escalated") is True or row.get("escalated_to_expert") is True,
+        "created_at": created_at or "",
+    }
+
+
+async def _record_ingestion_job(
+    *,
+    supabase: Any | None,
+    user: CurrentUser,
+    result: dict[str, Any],
+    source_type: str,
+    file_name: str | None,
+    source_url: str | None,
+    config: dict[str, Any],
+) -> None:
+    if not supabase or not user.tenant_id:
+        return
+
+    review_status = str(result.get("review_status") or "pending_review")
+    now = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "id": result.get("job_id"),
+        "tenant_id": user.tenant_id,
+        "job_type": "knowledge_ingestion",
+        "source_type": source_type,
+        "source_url": source_url,
+        "file_name": file_name,
+        "status": "pending_review" if review_status == "pending_review" else "completed",
+        "progress": 90 if review_status == "pending_review" else 100,
+        "total_items": 1,
+        "processed_items": 1,
+        "error_count": 0,
+        "errors": [],
+        "config": config,
+        "result": result,
+        "created_by": user.sub,
+        "started_at": now,
+        "completed_at": now,
+    }
+
+    try:
+        await supabase.table("ingestion_jobs").insert(payload).execute()
+    except Exception as exc:
+        log.warning("admin.record_ingestion_job.failed", error=str(exc))
+
+
+async def _synthesise_ingestion_jobs(supabase: Any, *, limit: int) -> list[dict[str, Any]]:
+    jobs: list[dict[str, Any]] = []
+    table_specs = [
+        ("laws", "statute", "full_text"),
+        ("cases", "case", "ruling"),
+        ("legal_forms", "form", "content"),
+    ]
+
+    for table, document_type, text_field in table_specs:
+        try:
+            result = await supabase.table(table).select("*").limit(limit).execute()
+        except Exception as exc:
+            log.warning("admin.synthesise_ingestion_jobs_table.failed", table=table, error=str(exc))
+            continue
+
+        for row in result.data or []:
+            metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            title = row.get("title") or row.get("case_no") or metadata.get("file_name") or "Untitled"
+            created_at = row.get("ingested_at") or row.get("created_at") or row.get("updated_at")
+            review_status = row.get("review_status") or metadata.get("review_status") or "approved"
+            text = row.get(text_field) or row.get("full_text") or row.get("summary") or ""
+
+            jobs.append({
+                "id": row.get("id"),
+                "tenant_id": row.get("tenant_id"),
+                "job_type": "knowledge_ingestion",
+                "source_type": "knowledge_table",
+                "source_url": row.get("source_url") or row.get("official_source_url") or metadata.get("source_url"),
+                "file_name": metadata.get("file_name") or title,
+                "status": "pending_review" if review_status == "pending_review" else "completed",
+                "progress": 90 if review_status == "pending_review" else 100,
+                "total_items": 1,
+                "processed_items": 1,
+                "error_count": 0,
+                "errors": [],
+                "config": {
+                    "document_type": document_type,
+                    "jurisdiction": row.get("jurisdiction"),
+                    "source_table": table,
+                },
+                "result": {
+                    "document_id": row.get("id"),
+                    "source_table": table,
+                    "title": title,
+                    "status": row.get("status"),
+                    "review_status": review_status,
+                    "chunks": metadata.get("chunks"),
+                    "text_length": metadata.get("text_length") or len(text),
+                    "embedding_model": metadata.get("embedding_model"),
+                    "document_type": document_type,
+                    "jurisdiction": row.get("jurisdiction"),
+                },
+                "created_by": row.get("ingested_by"),
+                "started_at": created_at,
+                "completed_at": created_at,
+                "created_at": created_at,
+                "updated_at": row.get("updated_at") or created_at,
+            })
+
+    jobs.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+    return jobs[:limit]

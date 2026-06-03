@@ -279,6 +279,7 @@ class WorkflowManager:
             await self._expert_queue.enqueue(
                 session_id=sid,
                 user_id=user_id,
+                tenant_id=tenant_id,
                 reason=f"Low confidence: {final_confidence:.2f}",
                 confidence=final_confidence,
                 query_preview=clean_question,

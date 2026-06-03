@@ -1058,6 +1058,7 @@ AS $$
         FROM cases c
         WHERE c.embedding IS NOT NULL
           AND (p_jurisdiction IS NULL OR c.jurisdiction = p_jurisdiction)
+          AND (p_status IS NULL OR c.status = p_status)
         ORDER BY c.embedding <=> query_embedding
         LIMIT 40
     ),
@@ -1093,6 +1094,7 @@ AS $$
                 coalesce(c.ratio_decidendi,'')
               ) @@ plainto_tsquery('simple', query_text)
           AND (p_jurisdiction IS NULL OR c.jurisdiction = p_jurisdiction)
+          AND (p_status IS NULL OR c.status = p_status)
         LIMIT 40
     ),
 

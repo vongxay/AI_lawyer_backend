@@ -41,6 +41,7 @@ class IngestionInput:
     review_status: str = "pending_review"
     tenant_id: str | None = None
     user_id: str | None = None
+    allow_short_text: bool = False
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,9 @@ class IngestionResult:
     chunks: int
     text_length: int
     embedding_model: str | None
+    review_status: str
+    document_type: str
+    jurisdiction: str
     warnings: list[str] = field(default_factory=list)
 
 
@@ -71,10 +75,15 @@ class LegalDocumentIngestionService:
 
         title = item.title or _title_from_filename(item.filename)
         text = extract_text(item.content, item.content_type, item.filename)
+        warnings: list[str] = []
         if len(text.strip()) < 20:
-            raise UnsupportedFileTypeError(
-                "Could not extract enough text from this document.",
-                details={"file_name": item.filename, "content_type": item.content_type},
+            if not item.allow_short_text:
+                raise UnsupportedFileTypeError(
+                    "Could not extract enough text from this document.",
+                    details={"file_name": item.filename, "content_type": item.content_type},
+                )
+            warnings.append(
+                "Document text is very short; add the full legal text before relying on search or AI answers."
             )
 
         chunks = chunk_text(text)
@@ -84,6 +93,7 @@ class LegalDocumentIngestionService:
 
         if not self._supabase:
             warnings = [
+                *warnings,
                 *embedding["warnings"],
                 "Supabase is not configured; document was processed but not persisted.",
             ]
@@ -96,6 +106,9 @@ class LegalDocumentIngestionService:
                 chunks=len(chunks),
                 text_length=len(text),
                 embedding_model=embedding["model"],
+                review_status=item.review_status,
+                document_type=item.document_type,
+                jurisdiction=_short_jurisdiction(item.jurisdiction),
                 warnings=warnings,
             )
 
@@ -126,7 +139,10 @@ class LegalDocumentIngestionService:
             chunks=len(chunks),
             text_length=len(text),
             embedding_model=embedding["model"],
-            warnings=embedding["warnings"],
+            review_status=item.review_status,
+            document_type=item.document_type,
+            jurisdiction=_short_jurisdiction(item.jurisdiction),
+            warnings=[*warnings, *embedding["warnings"]],
         )
 
     async def _embed_text(self, text: str, *, jurisdiction: str) -> dict[str, Any]:
@@ -340,6 +356,10 @@ def _vector_literal(vector: list[float]) -> str:
     return "[" + ",".join(f"{v:.8f}" for v in vector) + "]"
 
 
+def _active_status_for_review(review_status: str) -> str:
+    return "active" if review_status == "approved" else "pending"
+
+
 def _build_insert_payloads(
     *,
     source_table: str,
@@ -350,6 +370,7 @@ def _build_insert_payloads(
     vector: str,
 ) -> list[dict[str, Any]]:
     tags = item.tags or []
+    modern_status = _active_status_for_review(item.review_status)
 
     if source_table == "cases":
         return [
@@ -361,6 +382,7 @@ def _build_insert_payloads(
                 "language": metadata.get("language"),
                 "official_source_url": metadata.get("official_source_url"),
                 "source_authority": metadata.get("source_authority"),
+                "status": modern_status,
                 "review_status": item.review_status,
                 "ruling": text,
                 "full_text": text,
@@ -399,6 +421,7 @@ def _build_insert_payloads(
                 "content": text,
                 "tags": tags,
                 "embedding": vector,
+                "is_active": item.review_status == "approved",
             },
             {
                 "title": title,
@@ -410,6 +433,7 @@ def _build_insert_payloads(
                 "review_status": item.review_status,
                 "content": text,
                 "embedding": vector,
+                "is_active": item.review_status == "approved",
             },
         ]
 
@@ -426,6 +450,7 @@ def _build_insert_payloads(
             "article": metadata.get("article"),
             "gazette_date": metadata.get("gazette_date"),
             "effective_date": metadata.get("effective_date"),
+            "status": modern_status,
             "review_status": item.review_status,
             "full_text": text,
             "summary": text[:1000],
@@ -470,5 +495,9 @@ def _legacy_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "reviewed_by",
         "reviewed_at",
         "review_notes",
+        "is_active",
     }
-    return {key: value for key, value in payload.items() if key not in optional_columns}
+    legacy = {key: value for key, value in payload.items() if key not in optional_columns}
+    if payload.get("review_status") and legacy.get("status") == "pending":
+        legacy["status"] = "active"
+    return legacy
