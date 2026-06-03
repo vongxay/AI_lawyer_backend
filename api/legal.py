@@ -25,6 +25,7 @@ from core.database import get_supabase
 from core.exceptions import FileTooLargeError, UnsupportedFileTypeError
 from core.logging import get_logger
 from core.security import CurrentUser, get_optional_user, require_roles
+from services.llm_service import LlmService, Message
 
 router = APIRouter(prefix="/api/v1/legal", tags=["legal"])
 log = get_logger(__name__)
@@ -166,14 +167,39 @@ async def draft_document(
     payload: DraftRequest,
     user: OptionalUser,
 ) -> dict:
-    content = f"[DRAFT - {payload.document_type or 'document'}]\n\n{payload.prompt}"
+    settings = get_settings()
+    llm = LlmService()
+    language_name = {"LA": "Lao", "TH": "Thai", "EN": "English"}.get(payload.language, payload.language)
+    system_prompt = (
+        "You are a careful legal drafting assistant. Draft only from the user's facts. "
+        "Do not invent missing facts, parties, dates, citations, or legal authority. "
+        "When information is missing, add clearly marked placeholders. "
+        "Use a professional legal document structure and include a review warning."
+    )
+    user_prompt = (
+        f"Document type: {payload.document_type or 'legal document'}\n"
+        f"Jurisdiction: {payload.jurisdiction or 'unspecified'}\n"
+        f"Language: {language_name}\n\n"
+        f"User facts and instructions:\n{payload.prompt}"
+    )
+    result = await llm.generate(
+        model=settings.model_document,
+        system=system_prompt,
+        messages=[Message(role="user", content=user_prompt)],
+        max_tokens=2500,
+        temperature=0.1,
+    )
+    content = result.text.strip()
     return {
         "content": content,
         "document": content,
         "format": "markdown",
         "language": payload.language,
         "jurisdiction": payload.jurisdiction,
-        "disclaimer": "This is a draft template. Review with a qualified lawyer before use.",
+        "model": result.model,
+        "provider": result.provider,
+        "tokens": result.total_tokens,
+        "disclaimer": "Review this draft with a qualified lawyer before use.",
     }
 
 

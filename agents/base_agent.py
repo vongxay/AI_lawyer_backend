@@ -26,7 +26,7 @@ from tenacity import (
 )
 
 from core.config import get_settings
-from core.exceptions import AgentTimeoutError, ExternalServiceError
+from core.exceptions import AILawyerError, AgentTimeoutError, ExternalServiceError
 from core.logging import get_logger
 from services.llm_service import LlmResult, LlmService, Message
 
@@ -98,6 +98,9 @@ class BaseAgent(ABC):
         except ExternalServiceError as exc:
             log.error("agent.external_error", agent=self.name, error=str(exc))
             return self._error_result(str(exc), started)
+        except AILawyerError as exc:
+            log.error("agent.domain_error", agent=self.name, error_code=exc.error_code, error=exc.message)
+            return self._error_result(exc.message, started)
         except Exception as exc:  # noqa: BLE001
             log.error("agent.unexpected_error", agent=self.name, error=str(exc), exc_info=True)
             return self._error_result(f"Unexpected error in agent '{self.name}'", started)

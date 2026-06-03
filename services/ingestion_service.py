@@ -14,7 +14,8 @@ from typing import Any
 from xml.etree import ElementTree
 
 from core.config import get_settings
-from core.exceptions import ExternalServiceError, UnsupportedFileTypeError
+from core.exceptions import ExternalServiceError, ProviderNotConfiguredError, UnsupportedFileTypeError
+from core.jurisdiction import canonical_jurisdiction, needs_multilingual_embedding, short_jurisdiction
 from core.logging import get_logger
 from services.llm_service import EmbeddingService
 
@@ -32,6 +33,12 @@ class IngestionInput:
     year: int | None = None
     tags: list[str] = field(default_factory=list)
     source_url: str | None = None
+    law_no: str | None = None
+    article: str | None = None
+    gazette_date: str | None = None
+    effective_date: str | None = None
+    language: str | None = None
+    review_status: str = "pending_review"
     tenant_id: str | None = None
     user_id: str | None = None
 
@@ -76,6 +83,10 @@ class LegalDocumentIngestionService:
         job_id = str(uuid.uuid4())
 
         if not self._supabase:
+            warnings = [
+                *embedding["warnings"],
+                "Supabase is not configured; document was processed but not persisted.",
+            ]
             return IngestionResult(
                 job_id=job_id,
                 document_id=None,
@@ -85,7 +96,7 @@ class LegalDocumentIngestionService:
                 chunks=len(chunks),
                 text_length=len(text),
                 embedding_model=embedding["model"],
-                warnings=["Supabase is not configured; document was processed but not persisted."],
+                warnings=warnings,
             )
 
         document_id = await self._insert_document(
@@ -115,6 +126,7 @@ class LegalDocumentIngestionService:
             chunks=len(chunks),
             text_length=len(text),
             embedding_model=embedding["model"],
+            warnings=embedding["warnings"],
         )
 
     async def _embed_text(self, text: str, *, jurisdiction: str) -> dict[str, Any]:
@@ -124,7 +136,14 @@ class LegalDocumentIngestionService:
                 embedding_text,
                 multilingual=_needs_multilingual_embedding(embedding_text, jurisdiction),
             )
-            return {"vector": result.vector, "model": result.model}
+            return {"vector": result.vector, "model": result.model, "warnings": []}
+        except ProviderNotConfiguredError as exc:
+            log.warning("ingestion.embedding.skipped", error=str(exc))
+            return {
+                "vector": None,
+                "model": None,
+                "warnings": ["Embedding provider is not configured; vector embedding was not generated."],
+            }
         except Exception as exc:
             log.warning("ingestion.embedding.failed", error=str(exc))
             raise ExternalServiceError(f"Embedding failed: {exc}") from exc
@@ -136,18 +155,27 @@ class LegalDocumentIngestionService:
         title: str,
         text: str,
         item: IngestionInput,
-        embedding: list[float],
+        embedding: list[float] | None,
         chunks: list[str],
     ) -> str:
+        extracted = infer_lao_legal_metadata(text, title=title, source_url=item.source_url)
         metadata = {
             "file_name": item.filename,
             "content_type": item.content_type,
             "source_url": item.source_url,
+            "official_source_url": item.source_url if _is_official_lao_source(item.source_url) else None,
+            "source_authority": _source_authority(item.source_url),
+            "language": item.language or extracted.get("language"),
+            "law_no": item.law_no or extracted.get("law_no"),
+            "article": item.article or extracted.get("article"),
+            "gazette_date": item.gazette_date or extracted.get("gazette_date"),
+            "effective_date": item.effective_date or extracted.get("effective_date"),
+            "review_status": item.review_status,
             "chunks": len(chunks),
             "text_length": len(text),
-            "ingestion_version": 1,
+            "ingestion_version": 2,
         }
-        vector = _vector_literal(embedding)
+        vector = _vector_literal(embedding) if embedding else None
 
         payloads = _build_insert_payloads(
             source_table=source_table,
@@ -157,6 +185,7 @@ class LegalDocumentIngestionService:
             metadata=metadata,
             vector=vector,
         )
+        payloads = payloads + [_legacy_payload(payload) for payload in payloads]
 
         last_error: Exception | None = None
         for payload in payloads:
@@ -260,31 +289,51 @@ def _title_from_filename(filename: str) -> str:
 
 
 def _db_jurisdiction(value: str) -> str:
-    normalized = value.strip().upper()
-    if normalized in {"TH", "THAILAND"}:
-        return "thailand"
-    if normalized in {"LA", "LAOS", "LAO"}:
-        return "laos"
-    if normalized in {"INTL", "INTERNATIONAL"}:
-        return "international"
-    return normalized.lower()
+    return canonical_jurisdiction(value) or value.lower()
 
 
 def _short_jurisdiction(value: str) -> str:
-    normalized = value.strip().upper()
-    if normalized in {"THAILAND"}:
-        return "TH"
-    if normalized in {"LAOS", "LAO"}:
-        return "LA"
-    if normalized in {"INTERNATIONAL"}:
-        return "INTL"
-    return normalized
+    return short_jurisdiction(value) or value
 
 
 def _needs_multilingual_embedding(text: str, jurisdiction: str) -> bool:
-    if jurisdiction.upper() in {"TH", "LA", "THAILAND", "LAOS", "LAO"}:
-        return True
-    return any("\u0e00" <= ch <= "\u0e7f" or "\u0e80" <= ch <= "\u0eff" for ch in text)
+    return needs_multilingual_embedding(text, jurisdiction)
+
+
+def infer_lao_legal_metadata(text: str, *, title: str, source_url: str | None = None) -> dict[str, Any]:
+    sample = f"{title}\n{text[:5000]}"
+    law_no = _first_match(sample, [
+        r"(?:Law\s+No\.?|No\.?)\s*([0-9A-Za-z/.-]+)",
+        r"(?:ເລກທີ|ສະບັບເລກທີ)\s*([0-9A-Za-z/.-]+)",
+    ])
+    article = _first_match(sample, [
+        r"(?:Article|Art\.?)\s*([0-9A-Za-z/.-]+)",
+        r"(?:ມາດຕາ)\s*([0-9A-Za-z/.-]+)",
+    ])
+    return {
+        "language": "lo" if any("\u0e80" <= ch <= "\u0eff" for ch in sample) else "en",
+        "law_no": law_no,
+        "article": article,
+        "source_authority": _source_authority(source_url),
+    }
+
+
+def _first_match(text: str, patterns: list[str]) -> str | None:
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def _source_authority(source_url: str | None) -> str:
+    if _is_official_lao_source(source_url):
+        return "lao_official_gazette"
+    return "uploaded"
+
+
+def _is_official_lao_source(source_url: str | None) -> bool:
+    return bool(source_url and "laoofficialgazette.gov.la" in source_url.lower())
 
 
 def _vector_literal(vector: list[float]) -> str:
@@ -309,6 +358,10 @@ def _build_insert_payloads(
                 "court": "Unknown",
                 "jurisdiction": _db_jurisdiction(item.jurisdiction),
                 "year_be": item.year,
+                "language": metadata.get("language"),
+                "official_source_url": metadata.get("official_source_url"),
+                "source_authority": metadata.get("source_authority"),
+                "review_status": item.review_status,
                 "ruling": text,
                 "full_text": text,
                 "summary": text[:1000],
@@ -321,6 +374,10 @@ def _build_insert_payloads(
                 "case_no": title,
                 "court": "Unknown",
                 "year": item.year or 0,
+                "language": metadata.get("language"),
+                "official_source_url": metadata.get("official_source_url"),
+                "source_authority": metadata.get("source_authority"),
+                "review_status": item.review_status,
                 "summary": text[:1000],
                 "ruling": text,
                 "ratio_decidendi": text[:3000],
@@ -336,6 +393,9 @@ def _build_insert_payloads(
                 "title": title,
                 "form_type": "general",
                 "jurisdiction": _db_jurisdiction(item.jurisdiction),
+                "official_source_url": metadata.get("official_source_url"),
+                "source_authority": metadata.get("source_authority"),
+                "review_status": item.review_status,
                 "content": text,
                 "tags": tags,
                 "embedding": vector,
@@ -345,6 +405,9 @@ def _build_insert_payloads(
                 "form_type": "general",
                 "jurisdiction": _short_jurisdiction(item.jurisdiction),
                 "language": _short_jurisdiction(item.jurisdiction),
+                "official_source_url": metadata.get("official_source_url"),
+                "source_authority": metadata.get("source_authority"),
+                "review_status": item.review_status,
                 "content": text,
                 "embedding": vector,
             },
@@ -356,6 +419,14 @@ def _build_insert_payloads(
             "doc_type": "regulation" if item.document_type == "regulation" else "statute",
             "jurisdiction": _db_jurisdiction(item.jurisdiction),
             "year_be": item.year,
+            "language": metadata.get("language"),
+            "official_source_url": metadata.get("official_source_url"),
+            "source_authority": metadata.get("source_authority"),
+            "law_no": metadata.get("law_no"),
+            "article": metadata.get("article"),
+            "gazette_date": metadata.get("gazette_date"),
+            "effective_date": metadata.get("effective_date"),
+            "review_status": item.review_status,
             "full_text": text,
             "summary": text[:1000],
             "source_url": item.source_url,
@@ -368,9 +439,36 @@ def _build_insert_payloads(
             "title": title,
             "jurisdiction": _short_jurisdiction(item.jurisdiction),
             "year": item.year,
+            "language": metadata.get("language"),
+            "official_source_url": metadata.get("official_source_url"),
+            "source_authority": metadata.get("source_authority"),
+            "law_no": metadata.get("law_no"),
+            "article": metadata.get("article"),
+            "gazette_date": metadata.get("gazette_date"),
+            "effective_date": metadata.get("effective_date"),
+            "review_status": item.review_status,
             "full_text": text,
             "status": "ACTIVE",
             "metadata": metadata,
             "embedding": vector,
         },
     ]
+
+
+def _legacy_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    optional_columns = {
+        "language",
+        "official_source_url",
+        "source_authority",
+        "law_no",
+        "article",
+        "gazette_date",
+        "effective_date",
+        "amended_by",
+        "repealed_by",
+        "review_status",
+        "reviewed_by",
+        "reviewed_at",
+        "review_notes",
+    }
+    return {key: value for key, value in payload.items() if key not in optional_columns}

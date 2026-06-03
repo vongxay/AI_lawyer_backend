@@ -62,6 +62,12 @@ class ExternalServiceError(AILawyerError):
     error_code = "EXTERNAL_SERVICE_ERROR"
 
 
+class ProviderNotConfiguredError(AILawyerError):
+    """Required external AI provider is not configured."""
+    status_code = 503
+    error_code = "PROVIDER_NOT_CONFIGURED"
+
+
 class TenantIsolationError(AILawyerError):
     """Attempt to access data outside caller's tenant."""
     status_code = 403

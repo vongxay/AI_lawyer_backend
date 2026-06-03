@@ -40,12 +40,14 @@ from agents.research_agent import LegalResearchAgent
 from agents.risk_strategy_agent import RiskStrategyAgent
 from agents.verification_agent import CitationVerificationAgent
 from core.config import get_settings
-from core.exceptions import LowConfidenceError
+from core.exceptions import ExternalServiceError, LowConfidenceError, ProviderNotConfiguredError
+from core.jurisdiction import infer_jurisdiction
 from core.logging import get_logger
 from memory.case_memory import CaseMemoryService
 from orchestrator.agent_selector import AgentSelector
 from orchestrator.query_classifier import QueryClassifier
 from services.audit_service import AuditService, ExpertQueueService
+from services.answer_guardrails import LegalAnswerGuardrails
 from services.cache_service import CacheService
 from services.llm_service import LlmService
 from services.pii_service import PiiService
@@ -89,6 +91,7 @@ class WorkflowManager:
         self._expert_queue = ExpertQueueService(supabase=supabase)
         self._cache = CacheService(redis_client=redis)
         self._llm = LlmService()
+        self._guardrails = LegalAnswerGuardrails()
 
         # ── Classifiers ───────────────────────────────────────────────────────
         self._classifier = QueryClassifier()
@@ -118,6 +121,7 @@ class WorkflowManager:
     ) -> OrchestrationResult:
         started = time.perf_counter()
         sid = session_id or str(uuid.uuid4())
+        effective_jurisdiction = infer_jurisdiction(question, jurisdiction)
 
         # ── Step 0: PII redaction on all user input ───────────────────────────
         clean_question = self._pii.redact_text(question)
@@ -126,7 +130,7 @@ class WorkflowManager:
         cache_key = self._build_cache_key(
             question=clean_question,
             case_id=case_id,
-            jurisdiction=jurisdiction,
+            jurisdiction=effective_jurisdiction,
             user_id=user_id,
             tenant_id=tenant_id,
         )
@@ -164,6 +168,7 @@ class WorkflowManager:
             session_id=sid,
             query_type=query_type,
             plan=str(plan),
+            jurisdiction=effective_jurisdiction,
             case_id=case_id,
         )
 
@@ -178,7 +183,7 @@ class WorkflowManager:
                     self._research_agent.run(
                         question=clean_question,
                         memory=memory,
-                        jurisdiction=jurisdiction,
+                        jurisdiction=effective_jurisdiction,
                     )
                 )
 
@@ -216,6 +221,13 @@ class WorkflowManager:
             evidence=evidence_data,
             memory=memory,
         )
+        if not reasoning_result.ok:
+            if "No real LLM API key" in (reasoning_result.error or ""):
+                raise ProviderNotConfiguredError(
+                    "Legal reasoning is unavailable because no real LLM API key is configured.",
+                    details={"required_env": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]},
+                )
+            raise ExternalServiceError(reasoning_result.error or "Legal reasoning agent failed")
         irac_data = reasoning_result.data
 
         # ── Step 6: Verification + Risk (parallel) ────────────────────────────
@@ -245,12 +257,22 @@ class WorkflowManager:
         research_quality = self._score_research_quality(research_data)
         verification_confidence = float(verification_data.get("_confidence", 1.0) if verification_data else 1.0)
         rejection_rate = float(verification_data.get("rejection_rate", 0.0) if verification_data else 0.0)
+        guardrail_result = self._guardrails.assess(
+            jurisdiction=effective_jurisdiction,
+            irac_data=irac_data,
+            verification_data=verification_data,
+            research_quality=research_quality,
+        )
 
         final_confidence = reasoning_confidence * 0.7 + verification_confidence * 0.3
         final_confidence = max(0.0, final_confidence - rejection_rate * 0.2)
         final_confidence = min(final_confidence, research_quality["confidence_cap"])
+        final_confidence = min(final_confidence, guardrail_result["confidence_cap"])
 
-        escalated = final_confidence < self._settings.confidence_escalation_threshold
+        escalated = (
+            final_confidence < self._settings.confidence_escalation_threshold
+            or bool(guardrail_result.get("requires_human_review"))
+        )
 
         # ── Step 8: Escalate to expert queue if needed ────────────────────────
         if escalated:
@@ -300,6 +322,7 @@ class WorkflowManager:
             risk_data=risk_data,
             research_data=research_data,
             quality=research_quality,
+            guardrails=guardrail_result,
             agents_used=agents_used,
             confidence=final_confidence,
             processing_ms=processing_ms,
@@ -405,8 +428,6 @@ class WorkflowManager:
             return {"level": "strong", "confidence_cap": 0.95, "reason": None}
         if source == "database" and count > 0:
             return {"level": "limited", "confidence_cap": 0.78, "reason": "limited_retrieved_context"}
-        if source == "stub":
-            return {"level": "development_stub", "confidence_cap": 0.45, "reason": "retriever_using_stub_context"}
         return {"level": "insufficient", "confidence_cap": 0.35, "reason": "no_retrieved_legal_context"}
 
     def _build_response(
@@ -417,6 +438,7 @@ class WorkflowManager:
         risk_data: dict | None,
         research_data: dict | None,
         quality: dict[str, Any],
+        guardrails: dict[str, Any],
         agents_used: list[str],
         confidence: float,
         processing_ms: int,
@@ -433,6 +455,7 @@ class WorkflowManager:
             "risk": risk_data,
             "answer_quality": {
                 **quality,
+                "guardrails": guardrails,
                 "retrieval": (research_data or {}).get("retrieval", {}),
             },
             "disclaimer": (

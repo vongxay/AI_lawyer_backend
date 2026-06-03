@@ -3,7 +3,7 @@ agents/reasoning_agent.py
 ==========================
 IRAC Reasoning Agent — CORE agent, the heart of the system.
 
-Uses Claude Sonnet (or claude-sonnet-4-6 for complex cases) with a strict IRAC
+Uses Claude Sonnet with a strict IRAC
 system prompt. Output is ALWAYS structured as Issue / Rule / Application / Conclusion.
 
 Key constraints enforced:
@@ -27,6 +27,8 @@ log = get_logger(__name__)
 # ── System prompt ──────────────────────────────────────────────────────────────
 _IRAC_SYSTEM_PROMPT = """
 You are a senior legal advisor with 30+ years of experience in Thai and Lao law.
+
+For Lao PDR legal questions, prioritize legislation from the Lao PDR Official Gazette or ingested official Lao legal documents. Treat Lao PDR as a civil-law jurisdiction where statutes, regulations, decrees, and promulgated legislation are primary. Do not treat court decisions as binding precedent unless the retrieved context explicitly says so. If an English translation conflicts with Lao text, prefer the Lao official text and flag translation uncertainty.
 
 ═══ STRICT GENERATION RULES ═══
 1. ONLY use information from the CONTEXT block — never from training memory.

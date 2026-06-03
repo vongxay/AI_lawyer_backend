@@ -239,6 +239,6 @@ pytest tests/test_agents/test_reasoning_agent.py -v
 2. **Ingest legal data** — Use `POST /api/v1/admin/ingest` with Thai/Lao statute and case law documents
 3. **Replace stub Reranker** — Integrate Cohere Rerank API or `bge-reranker-large` for Thai
 4. **Add Whisper service** — For audio evidence transcription (AWS Transcribe or self-hosted)
-5. **Wire real embeddings** — `text-embedding-3-large` for EN, `multilingual-e5-large` for TH/LA
+5. **Wire real embeddings** — `text-embedding-3-large` for EN/TH/LA multilingual retrieval
 6. **Set up monitoring** — Sentry for errors, Prometheus + Grafana for agent latency and LLM cost
 7. **Deploy** — Docker Compose → Railway/Render for staging, AWS ECS for production

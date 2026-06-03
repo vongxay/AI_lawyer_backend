@@ -240,7 +240,7 @@ CREATE TABLE laws (
     tags            text[] DEFAULT '{}',
     metadata        jsonb NOT NULL DEFAULT '{}',
 
-    -- Vector embedding (1536 dims for text-embedding-3-small or multilingual-e5-large)
+    -- Vector embedding (1536 dims for text-embedding-3-large)
     embedding       vector(1536),
 
     -- Audit

@@ -35,6 +35,13 @@ class UpdateKnowledgeDocument(BaseModel):
     year: int | None = None
     status: str | None = None
     tags: list[str] | None = None
+    reviewStatus: str | None = None
+    reviewNotes: str | None = None
+
+
+class ReviewDecision(BaseModel):
+    action: str = Field(pattern="^(approve|reject)$")
+    notes: str | None = Field(default=None, max_length=2000)
 
 
 @router.get("/documents", summary="List legal knowledge documents")
@@ -65,6 +72,33 @@ async def list_documents(
     for doc in docs:
         doc.pop("_sort", None)
     return {"items": docs[:limit], "total": len(docs)}
+
+
+@router.get("/documents/review", summary="List documents pending knowledge review")
+async def list_pending_review_documents(
+    user: AdminUser,
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict:
+    supabase = await get_supabase()
+    if not supabase:
+        return {"items": [], "total": 0}
+
+    items: list[dict[str, Any]] = []
+    for table, fallback_type in [("laws", "statute"), ("cases", "case"), ("legal_forms", "form")]:
+        try:
+            result = await (
+                supabase.table(table)
+                .select("*")
+                .eq("review_status", "pending_review")
+                .limit(limit)
+                .execute()
+            )
+            for row in result.data or []:
+                items.append(_map_document(table, fallback_type, row))
+        except Exception as exc:
+            log.warning("knowledge.review_list_table.failed", table=table, error=str(exc))
+
+    return {"items": items[:limit], "total": len(items)}
 
 
 @router.post("/documents", summary="Create a legal knowledge document")
@@ -133,6 +167,37 @@ async def delete_document(document_id: str, user: AdminUser) -> dict:
     return {"status": "not_found", "id": document_id}
 
 
+@router.post("/documents/{document_id}/review", summary="Approve or reject a knowledge document")
+async def review_document(
+    document_id: str,
+    payload: ReviewDecision,
+    user: AdminUser,
+) -> dict:
+    supabase = await get_supabase()
+    if not supabase:
+        return {"status": "skipped", "reason": "database_not_configured"}
+
+    review_status = "approved" if payload.action == "approve" else "rejected"
+    for table in ("laws", "cases", "legal_forms"):
+        try:
+            result = await (
+                supabase.table(table)
+                .update({
+                    "review_status": review_status,
+                    "reviewed_by": user.sub,
+                    "review_notes": payload.notes,
+                })
+                .eq("id", document_id)
+                .execute()
+            )
+            if result.data:
+                return {"status": review_status, "id": document_id, "source_table": table}
+        except Exception as exc:
+            log.warning("knowledge.review_table.failed", table=table, error=str(exc))
+
+    return {"status": "not_found", "id": document_id}
+
+
 def _map_document(table: str, fallback_type: str, row: dict[str, Any]) -> dict[str, Any]:
     if table == "cases":
         title = row.get("case_no") or row.get("title") or "Untitled case"
@@ -160,6 +225,12 @@ def _map_document(table: str, fallback_type: str, row: dict[str, Any]) -> dict[s
         "tags": row.get("tags") or [],
         "hasEmbedding": bool(row.get("embedding")),
         "textLength": len(text),
+        "reviewStatus": row.get("review_status") or "approved",
+        "sourceAuthority": row.get("source_authority") or (row.get("metadata") or {}).get("source_authority"),
+        "officialSourceUrl": row.get("official_source_url") or row.get("source_url") or (row.get("metadata") or {}).get("official_source_url"),
+        "lawNo": row.get("law_no") or (row.get("metadata") or {}).get("law_no"),
+        "article": row.get("article") or row.get("section_number") or row.get("section") or (row.get("metadata") or {}).get("article"),
+        "effectiveDate": row.get("effective_date") or (row.get("metadata") or {}).get("effective_date"),
         "_sort": row.get("updated_at") or row.get("created_at") or "",
     }
 
@@ -179,6 +250,10 @@ def _map_update(table: str, updates: dict[str, Any]) -> dict[str, Any]:
             mapped["is_active"] = updates["status"] != "archived"
         else:
             mapped["status"] = "active" if updates["status"] == "indexed" else "draft"
+    if "reviewStatus" in updates:
+        mapped["review_status"] = updates["reviewStatus"]
+    if "reviewNotes" in updates:
+        mapped["review_notes"] = updates["reviewNotes"]
     return mapped
 
 

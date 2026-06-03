@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
 
     # Model aliases — change here to swap models globally
-    model_reasoning: str = "claude-sonnet-4-6"          # IRAC complex reasoning
+    model_reasoning: str = "claude-sonnet-4-20250514"   # IRAC complex reasoning
     model_research: str = "claude-sonnet-4-20250514"    # Legal research / standard QA
     model_verification: str = "gpt-4o-mini"             # Citation verification
     model_document: str = "gpt-4o"                      # Document + vision analysis
@@ -87,7 +87,7 @@ class Settings(BaseSettings):
 
     # Embedding models
     embedding_model_en: str = "text-embedding-3-large"
-    embedding_model_multilingual: str = "multilingual-e5-large"
+    embedding_model_multilingual: str = "text-embedding-3-large"
     embedding_dims: int = 1536
 
     # ── Agent Behaviour ────────────────────────────────────────────────────────
@@ -98,7 +98,6 @@ class Settings(BaseSettings):
     rag_top_k: int = 10
     graph_depth: int = 2
     citation_rejection_alert_rate: float = 0.20  # alert admin if > 20%
-    allow_stub_legal_context: bool = Field(default=False, alias="ALLOW_STUB_LEGAL_CONTEXT")
 
     # ── Storage ────────────────────────────────────────────────────────────────
     max_upload_size_mb: int = 50

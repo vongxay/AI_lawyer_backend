@@ -21,7 +21,9 @@ from typing import TYPE_CHECKING, Any
 
 from agents.base_agent import BaseAgent
 from core.config import get_settings
+from core.jurisdiction import canonical_jurisdiction, needs_multilingual_embedding
 from core.logging import get_logger
+from rag.agentic_planner import AgenticRetrievalPlanner, RetrievalQuery
 from rag.embedder import Embedder
 from rag.graph_expander import GraphExpander
 from rag.reranker import Reranker
@@ -49,6 +51,7 @@ class LegalResearchAgent(BaseAgent):
         self._retriever = Retriever(supabase=supabase)
         self._graph = GraphExpander(supabase=supabase)
         self._reranker = Reranker()
+        self._planner = AgenticRetrievalPlanner()
 
     async def _execute(
         self,
@@ -58,19 +61,12 @@ class LegalResearchAgent(BaseAgent):
         jurisdiction: str | None = None,
     ) -> dict[str, Any]:
         settings = get_settings()
+        canonical_jurisdiction_value = canonical_jurisdiction(jurisdiction)
 
-        # Step 1: Embed query
-        embedding_result = await self._embedder.embed(
-            question,
-            multilingual=self._needs_multilingual_embedding(question, jurisdiction),
-        )
-
-        # Step 2: Hybrid search
-        chunks = await self._retriever.retrieve(
-            query=question,
-            embedding=embedding_result.vector,
-            jurisdiction=jurisdiction,
-            top_k=settings.rag_top_k * 3,  # over-fetch before rerank
+        chunks, retrieval_trace, embedding_tokens = await self._agentic_retrieve(
+            question=question,
+            jurisdiction=canonical_jurisdiction_value,
+            top_k=settings.rag_top_k * 3,
         )
 
         # Step 3: Graph expansion from top case hits
@@ -110,12 +106,64 @@ class LegalResearchAgent(BaseAgent):
             "retrieval": {
                 "source": self._retrieval_source(reranked),
                 "count": len(reranked),
-                "jurisdiction": jurisdiction,
-                "embedding_model": embedding_result.model,
+                "jurisdiction": canonical_jurisdiction_value,
+                "trace": retrieval_trace,
             },
             "_confidence": min(1.0, len(reranked) / max(1, settings.rag_top_k)),
-            "_tokens": embedding_result.tokens,
+            "_tokens": embedding_tokens,
         }
+
+    async def _agentic_retrieve(
+        self,
+        *,
+        question: str,
+        jurisdiction: str | None,
+        top_k: int,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+        plan = self._planner.plan(question, jurisdiction)
+        chunks, trace, tokens = await self._run_retrieval_plan(plan, top_k=top_k)
+
+        if self._planner.should_second_pass(chunks):
+            second_pass = self._planner.second_pass(question, jurisdiction)
+            more_chunks, more_trace, more_tokens = await self._run_retrieval_plan(second_pass, top_k=top_k)
+            chunks.extend(more_chunks)
+            trace.extend(more_trace)
+            tokens += more_tokens
+
+        return self._dedupe_chunks(chunks), trace, tokens
+
+    async def _run_retrieval_plan(
+        self,
+        plan: list[RetrievalQuery],
+        *,
+        top_k: int,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+        all_chunks: list[dict[str, Any]] = []
+        trace: list[dict[str, Any]] = []
+        total_tokens = 0
+
+        for item in plan[:5]:
+            embedding_result = await self._embedder.embed(
+                item.query,
+                multilingual=needs_multilingual_embedding(item.query, item.jurisdiction),
+            )
+            total_tokens += embedding_result.tokens
+
+            chunks = await self._retriever.retrieve(
+                query=item.query,
+                embedding=embedding_result.vector,
+                jurisdiction=item.jurisdiction,
+                top_k=top_k,
+            )
+            all_chunks.extend(chunks)
+            trace.append({
+                "purpose": item.purpose,
+                "jurisdiction": item.jurisdiction,
+                "results": len(chunks),
+                "embedding_model": embedding_result.model,
+            })
+
+        return all_chunks, trace, total_tokens
 
     def _extract_memory_highlights(self, memory: dict) -> dict:
         if memory.get("empty"):
@@ -127,13 +175,19 @@ class LegalResearchAgent(BaseAgent):
         }
 
     def _needs_multilingual_embedding(self, question: str, jurisdiction: str | None) -> bool:
-        if jurisdiction and jurisdiction.upper() in {"TH", "LA"}:
-            return True
-        return any("\u0e00" <= ch <= "\u0e7f" or "\u0e80" <= ch <= "\u0eff" for ch in question)
+        return needs_multilingual_embedding(question, jurisdiction)
 
     def _retrieval_source(self, chunks: list[dict[str, Any]]) -> str:
         if not chunks:
             return "empty"
-        if all(str(chunk.get("id", "")).startswith("stub-") for chunk in chunks):
-            return "stub"
         return "database"
+
+    def _dedupe_chunks(self, chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        seen: set[str] = set()
+        unique: list[dict[str, Any]] = []
+        for chunk in chunks:
+            key = str(chunk.get("id") or f"{chunk.get('title')}|{chunk.get('content', '')[:120]}")
+            if key not in seen:
+                seen.add(key)
+                unique.append(chunk)
+        return unique

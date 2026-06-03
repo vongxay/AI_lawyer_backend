@@ -2,13 +2,13 @@
 rag/retriever.py
 ================
 Hybrid search: Semantic (pgvector cosine) + Keyword (BM25/FTS) with RRF fusion.
-Falls back to keyword-only or stub when Supabase is unavailable.
+Returns no results when Supabase/search is unavailable.
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from core.config import get_settings
+from core.jurisdiction import canonical_jurisdiction
 from core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -30,21 +30,19 @@ class Retriever:
         top_k: int = 10,
     ) -> list[dict[str, Any]]:
         if not self._supabase:
-            if not get_settings().allow_stub_legal_context:
-                log.warning("retriever.no_database", mode="empty")
-                return []
-            return self._stub_results(query, top_k)
+            log.warning("retriever.no_database", mode="empty")
+            return []
 
         try:
             return await self._hybrid_search(
                 query=query,
                 embedding=embedding or [],
-                jurisdiction=jurisdiction,
+                jurisdiction=canonical_jurisdiction(jurisdiction),
                 top_k=top_k,
             )
         except Exception as exc:
             log.warning("retriever.search.failed", error=str(exc))
-            return self._stub_results(query, top_k)
+            return []
 
     async def _hybrid_search(
         self,
@@ -92,19 +90,3 @@ class Retriever:
             "section": row.get("section") or row.get("section_number") or metadata.get("section"),
             "source_url": row.get("source_url") or metadata.get("source_url"),
         }
-
-    def _stub_results(self, query: str, top_k: int) -> list[dict[str, Any]]:
-        """Development stub — returns plausible-looking results."""
-        return [
-            {
-                "id": f"stub-{i}",
-                "type": "law",
-                "title": "ประมวลกฎหมายแพ่งและพาณิชย์",
-                "section": f"มาตรา {420 + i}",
-                "content": f"stub context chunk {i + 1} for: {query[:60]}",
-                "jurisdiction": "TH",
-                "status": "ACTIVE",
-                "final_score": 1.0 - (i * 0.05),
-            }
-            for i in range(min(top_k, 3))
-        ]

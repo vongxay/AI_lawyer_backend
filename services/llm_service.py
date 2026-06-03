@@ -12,8 +12,7 @@ Design principles:
 """
 from __future__ import annotations
 
-import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import AsyncIterator
 
 from tenacity import (
@@ -24,7 +23,7 @@ from tenacity import (
 )
 
 from core.config import get_settings
-from core.exceptions import ExternalServiceError
+from core.exceptions import ExternalServiceError, ProviderNotConfiguredError
 from core.logging import get_logger
 
 log = get_logger(__name__)
@@ -178,28 +177,7 @@ class _OpenAIProvider:
                 yield delta
 
 
-# ── Stub for dev / testing ────────────────────────────────────────────────────
 
-class _StubProvider:
-    """Used when no API keys are configured (development / unit tests)."""
-
-    async def generate(self, *, model: str, messages: list[Message], **kwargs) -> LlmResult:
-        prompt_preview = messages[-1].content[:80] if messages else ""
-        log.debug("llm.stub.generate", model=model, preview=prompt_preview)
-        return LlmResult(
-            text=f"[STUB:{model}] Response for: {prompt_preview}",
-            model=model,
-            provider="stub",
-        )
-
-    async def stream(self, *, model: str, messages: list[Message], **kwargs) -> AsyncIterator[str]:
-        result = await self.generate(model=model, messages=messages)
-        for word in result.text.split():
-            yield word + " "
-            await asyncio.sleep(0.01)
-
-
-# ── Public LlmService ─────────────────────────────────────────────────────────
 
 class LlmService:
     """
@@ -208,27 +186,26 @@ class LlmService:
     Model prefix mapping:
         claude-*  → Anthropic
         gpt-*     → OpenAI
-        (anything else in dev) → Stub
+        unknown   → provider-not-configured error
     """
 
     def __init__(self) -> None:
         settings = get_settings()
-        self._anthropic: _AnthropicProvider | _StubProvider | None = None
-        self._openai: _OpenAIProvider | _StubProvider | None = None
+        self._anthropic: _AnthropicProvider | None = None
+        self._openai: _OpenAIProvider | None = None
 
         if _has_real_api_key(settings.anthropic_api_key):
             self._anthropic = _AnthropicProvider(settings.anthropic_api_key)
         if _has_real_api_key(settings.openai_api_key):
             self._openai = _OpenAIProvider(settings.openai_api_key)
 
-        self._stub = _StubProvider()
 
     def _get_provider(self, model: str):
         if model.startswith("claude"):
-            return self._anthropic or self._stub
+            return self._anthropic
         if model.startswith("gpt") or model.startswith("o1"):
-            return self._openai or self._stub
-        return self._stub
+            return self._openai
+        return None
 
     async def generate(
         self,
@@ -240,6 +217,11 @@ class LlmService:
         temperature: float = 0.1,
     ) -> LlmResult:
         provider = self._get_provider(model)
+        if provider is None:
+            raise ProviderNotConfiguredError(
+                "No real LLM API key is configured for this model.",
+                details={"model": model, "required_env": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]},
+            )
         try:
             result = await provider.generate(
                 model=model,
@@ -269,6 +251,11 @@ class LlmService:
         max_tokens: int = 4096,
     ) -> AsyncIterator[str]:
         provider = self._get_provider(model)
+        if provider is None:
+            raise ProviderNotConfiguredError(
+                "No real LLM API key is configured for streaming.",
+                details={"model": model, "required_env": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]},
+            )
         async for chunk in provider.stream(model=model, messages=messages, system=system, max_tokens=max_tokens):
             yield chunk
 
@@ -299,10 +286,10 @@ class EmbeddingService:
 
     async def embed(self, text: str, *, multilingual: bool = False) -> EmbeddingResult:
         if not self._api_key:
-            # Deterministic stub vector for dev
-            dim = self._dims
-            val = float((sum(text.encode()) % 1000) / 1000.0)
-            return EmbeddingResult(vector=[val] * dim, model="stub-embedding")
+            raise ProviderNotConfiguredError(
+                "No real embedding API key is configured.",
+                details={"required_env": ["OPENAI_API_KEY"]},
+            )
 
         settings = get_settings()
         model = settings.embedding_model_multilingual if multilingual else self._model_en

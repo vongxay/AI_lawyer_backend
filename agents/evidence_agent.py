@@ -149,7 +149,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
 
     async def _analyze_audio(self, ev_file: EvidenceFile, question: str, ctx: str, model: str) -> dict:
         # In production: first run Whisper transcription via audio_service
-        # Here we analyse with available text content or stub transcript
+        # Until transcription is connected, only analyse caller-provided text content.
         transcript = ev_file.content if isinstance(ev_file.content, str) else "[Audio file — transcription required]"
         user_msg = (
             f"Legal question: {question}{ctx}\n\n"
