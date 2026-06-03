@@ -78,6 +78,13 @@ You are a senior legal advisor with 30+ years of experience in Thai and Lao law.
       "settlement_note": "settlement consideration if applicable"
     }
   },
+  "citations": [
+    {
+      "ref": "law section or case number exactly as shown in CONTEXT",
+      "status": "UNVERIFIED",
+      "note": "why this citation supports the answer"
+    }
+  ],
   "confidence": 0.85,
   "reasoning_notes": "internal notes on analysis quality"
 }

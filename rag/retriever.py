@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from core.config import get_settings
 from core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -29,6 +30,9 @@ class Retriever:
         top_k: int = 10,
     ) -> list[dict[str, Any]]:
         if not self._supabase:
+            if not get_settings().allow_stub_legal_context:
+                log.warning("retriever.no_database", mode="empty")
+                return []
             return self._stub_results(query, top_k)
 
         try:
@@ -65,10 +69,29 @@ class Retriever:
             params["p_jurisdiction"] = jurisdiction
 
         result = await self._supabase.rpc("hybrid_legal_search", params).execute()
-        data = result.data or []
+        data = [self._normalise_row(row) for row in (result.data or [])]
 
         log.info("retriever.hybrid_search.ok", results=len(data), jurisdiction=jurisdiction)
         return data
+
+    def _normalise_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        source_table = row.get("source_table")
+        doc_type = row.get("doc_type")
+        normalised_type = row.get("type") or doc_type or source_table or "doc"
+        if source_table == "cases":
+            normalised_type = "case"
+        elif source_table == "laws":
+            normalised_type = "law"
+        elif source_table == "legal_forms":
+            normalised_type = "form"
+
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        return {
+            **row,
+            "type": normalised_type,
+            "section": row.get("section") or row.get("section_number") or metadata.get("section"),
+            "source_url": row.get("source_url") or metadata.get("source_url"),
+        }
 
     def _stub_results(self, query: str, top_k: int) -> list[dict[str, Any]]:
         """Development stub — returns plausible-looking results."""

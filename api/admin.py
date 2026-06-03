@@ -13,17 +13,20 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 
 from api.dependencies import AuditDep, ExpertQueueDep
 from api.schemas import IngestRequest
+from core.config import get_settings
 from core.database import get_supabase
+from core.exceptions import FileTooLargeError
 from core.logging import get_logger
-from core.security import CurrentUser, require_roles
+from core.security import CurrentUser, get_admin_user
+from services.ingestion_service import IngestionInput, LegalDocumentIngestionService
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 log = get_logger(__name__)
-AdminUser = Annotated[CurrentUser, Depends(require_roles("admin"))]
+AdminUser = Annotated[CurrentUser, Depends(get_admin_user)]
 
 
 @router.post("/ingest", summary="Queue a document for knowledge base ingestion")
@@ -45,6 +48,55 @@ async def ingest_document(
         "document_type": payload.document_type,
         "jurisdiction": payload.jurisdiction,
         "note": "Document queued for embedding and ingestion into knowledge base.",
+    }
+
+
+@router.post("/ingest/upload", summary="Upload and index legal documents")
+async def upload_legal_documents(
+    user: AdminUser,
+    files: list[UploadFile] = File(...),
+    document_type: str = Form(default="law"),
+    jurisdiction: str = Form(default="TH"),
+    title: str | None = Form(default=None),
+    year: int | None = Form(default=None),
+    tags: str = Form(default=""),
+    source_url: str | None = Form(default=None),
+) -> dict:
+    settings = get_settings()
+    supabase = await get_supabase()
+    service = LegalDocumentIngestionService(supabase=supabase)
+    parsed_tags = [tag.strip() for tag in tags.split(",") if tag.strip()]
+
+    results = []
+    for upload in files:
+        content = await upload.read()
+        size_mb = len(content) / (1024 * 1024)
+        if size_mb > settings.max_upload_size_mb:
+            raise FileTooLargeError(
+                f"'{upload.filename}' ({size_mb:.1f}MB) exceeds limit of {settings.max_upload_size_mb}MB"
+            )
+
+        result = await service.ingest(
+            IngestionInput(
+                filename=upload.filename or "unnamed",
+                content_type=upload.content_type or "application/octet-stream",
+                content=content,
+                document_type=document_type,
+                jurisdiction=jurisdiction,
+                title=title if len(files) == 1 else None,
+                year=year,
+                tags=parsed_tags,
+                source_url=source_url,
+                tenant_id=user.tenant_id or None,
+                user_id=user.sub,
+            )
+        )
+        results.append(result.__dict__)
+
+    return {
+        "status": "indexed",
+        "count": len(results),
+        "items": results,
     }
 
 

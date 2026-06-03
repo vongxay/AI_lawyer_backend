@@ -17,7 +17,7 @@ Output schema:
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agents.base_agent import BaseAgent
 from core.config import get_settings
@@ -29,15 +29,25 @@ from rag.retriever import Retriever
 
 log = get_logger(__name__)
 
+if TYPE_CHECKING:
+    from supabase import AsyncClient  # pragma: no cover
+    import redis.asyncio as aioredis
+
 
 class LegalResearchAgent(BaseAgent):
     name = "research"
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(
+        self,
+        *,
+        supabase: "AsyncClient | None" = None,
+        redis: "aioredis.Redis | None" = None,
+        **kwargs,
+    ) -> None:
         super().__init__(**kwargs)
-        self._embedder = Embedder()
-        self._retriever = Retriever()
-        self._graph = GraphExpander()
+        self._embedder = Embedder(redis=redis)
+        self._retriever = Retriever(supabase=supabase)
+        self._graph = GraphExpander(supabase=supabase)
         self._reranker = Reranker()
 
     async def _execute(
@@ -50,7 +60,10 @@ class LegalResearchAgent(BaseAgent):
         settings = get_settings()
 
         # Step 1: Embed query
-        embedding_result = await self._embedder.embed(question)
+        embedding_result = await self._embedder.embed(
+            question,
+            multilingual=self._needs_multilingual_embedding(question, jurisdiction),
+        )
 
         # Step 2: Hybrid search
         chunks = await self._retriever.retrieve(
@@ -94,6 +107,12 @@ class LegalResearchAgent(BaseAgent):
             "retrieved_documents": reranked,
             "case_graph_context": graph_results,
             "memory_highlights": memory_highlights,
+            "retrieval": {
+                "source": self._retrieval_source(reranked),
+                "count": len(reranked),
+                "jurisdiction": jurisdiction,
+                "embedding_model": embedding_result.model,
+            },
             "_confidence": min(1.0, len(reranked) / max(1, settings.rag_top_k)),
             "_tokens": embedding_result.tokens,
         }
@@ -106,3 +125,15 @@ class LegalResearchAgent(BaseAgent):
             "key_citations": (memory.get("key_citations") or [])[:10],
             "past_strategies": memory.get("strategies") or [],
         }
+
+    def _needs_multilingual_embedding(self, question: str, jurisdiction: str | None) -> bool:
+        if jurisdiction and jurisdiction.upper() in {"TH", "LA"}:
+            return True
+        return any("\u0e00" <= ch <= "\u0e7f" or "\u0e80" <= ch <= "\u0eff" for ch in question)
+
+    def _retrieval_source(self, chunks: list[dict[str, Any]]) -> str:
+        if not chunks:
+            return "empty"
+        if all(str(chunk.get("id", "")).startswith("stub-") for chunk in chunks):
+            return "stub"
+        return "database"

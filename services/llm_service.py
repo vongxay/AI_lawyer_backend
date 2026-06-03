@@ -30,6 +30,13 @@ from core.logging import get_logger
 log = get_logger(__name__)
 
 
+def _has_real_api_key(value: str | None) -> bool:
+    if not value:
+        return False
+    stripped = value.strip()
+    return bool(stripped) and "..." not in stripped and not stripped.endswith("-")
+
+
 # ── Result types ───────────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
@@ -209,9 +216,9 @@ class LlmService:
         self._anthropic: _AnthropicProvider | _StubProvider | None = None
         self._openai: _OpenAIProvider | _StubProvider | None = None
 
-        if settings.anthropic_api_key:
+        if _has_real_api_key(settings.anthropic_api_key):
             self._anthropic = _AnthropicProvider(settings.anthropic_api_key)
-        if settings.openai_api_key:
+        if _has_real_api_key(settings.openai_api_key):
             self._openai = _OpenAIProvider(settings.openai_api_key)
 
         self._stub = _StubProvider()
@@ -280,7 +287,7 @@ class EmbeddingService:
 
     def __init__(self) -> None:
         settings = get_settings()
-        self._api_key = settings.openai_api_key
+        self._api_key = settings.openai_api_key if _has_real_api_key(settings.openai_api_key) else None
         self._model_en = settings.embedding_model_en
         self._dims = settings.embedding_dims
         self._client = None

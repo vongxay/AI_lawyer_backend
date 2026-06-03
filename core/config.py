@@ -98,11 +98,16 @@ class Settings(BaseSettings):
     rag_top_k: int = 10
     graph_depth: int = 2
     citation_rejection_alert_rate: float = 0.20  # alert admin if > 20%
+    allow_stub_legal_context: bool = Field(default=False, alias="ALLOW_STUB_LEGAL_CONTEXT")
 
     # ── Storage ────────────────────────────────────────────────────────────────
     max_upload_size_mb: int = 50
     max_request_body_mb: int = 55
-    allowed_upload_types: str = "application/pdf,image/jpeg,image/png,image/webp,audio/mpeg,audio/wav,audio/mp4,video/mp4"
+    allowed_upload_types: str = (
+        "application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,"
+        "application/msword,text/plain,text/markdown,image/jpeg,image/png,image/webp,"
+        "audio/mpeg,audio/wav,audio/mp4,video/mp4"
+    )
 
     @property
     def allowed_mime_types(self) -> set[str]:

@@ -18,6 +18,7 @@ Alert: if rejection rate > threshold → triggers admin notification
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import TYPE_CHECKING, Any
 
 from agents.base_agent import BaseAgent
@@ -111,34 +112,90 @@ class CitationVerificationAgent(BaseAgent):
             return {**citation, "status": "REJECTED", "reason": "Empty citation reference"}
 
         try:
-            # Search laws table
-            laws_result = await self._supabase.table("laws") \
-                .select("id, title, status, year") \
-                .ilike("title", f"%{ref[:50]}%") \
-                .limit(1) \
-                .execute()
+            law = await self._find_law(ref)
+            if law:
+                status_value = str(law.get("status", "")).upper()
+                status = "VERIFIED" if status_value in {"ACTIVE", "INDEXED"} else "OUTDATED"
+                return {
+                    **citation,
+                    "status": status,
+                    "db_match": law.get("title"),
+                    "year": law.get("year") or law.get("year_be"),
+                    "source_links": [law["source_url"]] if law.get("source_url") else citation.get("source_links", []),
+                }
 
-            if laws_result.data:
-                law = laws_result.data[0]
-                status = "VERIFIED" if law.get("status") == "ACTIVE" else "OUTDATED"
-                return {**citation, "status": status, "db_match": law.get("title"), "year": law.get("year")}
-
-            # Search cases table
-            cases_result = await self._supabase.table("cases") \
-                .select("id, case_no, court, year") \
-                .ilike("case_no", f"%{ref[:30]}%") \
-                .limit(1) \
-                .execute()
-
-            if cases_result.data:
-                case = cases_result.data[0]
-                return {**citation, "status": "VERIFIED", "db_match": case.get("case_no")}
+            case = await self._find_case(ref)
+            if case:
+                return {
+                    **citation,
+                    "status": "VERIFIED",
+                    "db_match": case.get("case_no") or case.get("title"),
+                    "year": case.get("year") or case.get("year_be"),
+                    "source_links": [case["source_url"]] if case.get("source_url") else citation.get("source_links", []),
+                }
 
             return None  # Not found → fall through to LLM
 
         except Exception as exc:
             log.warning("verification.db_error", ref=ref, error=str(exc))
             return None
+
+    async def _find_law(self, ref: str) -> dict | None:
+        terms = self._search_terms(ref)
+        selects = (
+            "id, title, status, year_be, section_number, source_url",
+            "id, title, status, year, section, source_url",
+            "id, title, status",
+        )
+        filters = [(column, term) for term in terms for column in ("title", "full_text")]
+        section = self._section_number(ref)
+        if section:
+            filters.extend([("section_number", section), ("section", section)])
+        return await self._first_match("laws", selects, filters)
+
+    async def _find_case(self, ref: str) -> dict | None:
+        terms = self._search_terms(ref)
+        selects = (
+            "id, case_no, court, year_be, source_url",
+            "id, case_no, court, year, source_url",
+            "id, case_no, court",
+        )
+        filters = [(column, term) for term in terms for column in ("case_no", "summary", "ruling")]
+        return await self._first_match("cases", selects, filters)
+
+    async def _first_match(
+        self,
+        table: str,
+        selects: tuple[str, ...],
+        filters: list[tuple[str, str]],
+    ) -> dict | None:
+        for select in selects:
+            for column, term in filters[:8]:
+                try:
+                    result = await (
+                        self._supabase.table(table)
+                        .select(select)
+                        .ilike(column, f"%{term[:80]}%")
+                        .limit(1)
+                        .execute()
+                    )
+                    if result.data:
+                        return result.data[0]
+                except Exception:
+                    continue
+        return None
+
+    def _search_terms(self, ref: str) -> list[str]:
+        cleaned = re.sub(r"\s+", " ", ref).strip()
+        terms = [cleaned]
+        section = self._section_number(ref)
+        if section:
+            terms.append(section)
+        return [term for term in terms if term]
+
+    def _section_number(self, ref: str) -> str | None:
+        match = re.search(r"(?:มาตรา|section|sec\.?)\s*([0-9A-Za-z/.-]+)", ref, flags=re.IGNORECASE)
+        return match.group(1) if match else None
 
     async def _llm_plausibility_check(self, citations: list[dict]) -> list[dict]:
         """Use fast LLM model to assess plausibility of citations not in DB."""

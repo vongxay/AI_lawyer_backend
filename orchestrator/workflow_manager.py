@@ -47,6 +47,7 @@ from orchestrator.agent_selector import AgentSelector
 from orchestrator.query_classifier import QueryClassifier
 from services.audit_service import AuditService, ExpertQueueService
 from services.cache_service import CacheService
+from services.llm_service import LlmService
 from services.pii_service import PiiService
 
 if TYPE_CHECKING:
@@ -87,18 +88,19 @@ class WorkflowManager:
         self._audit = AuditService(supabase=supabase)
         self._expert_queue = ExpertQueueService(supabase=supabase)
         self._cache = CacheService(redis_client=redis)
+        self._llm = LlmService()
 
         # ── Classifiers ───────────────────────────────────────────────────────
         self._classifier = QueryClassifier()
         self._selector = AgentSelector()
 
         # ── Agents — share LLM service via BaseAgent default ─────────────────
-        self._research_agent = LegalResearchAgent()
-        self._reasoning_agent = IracReasoningAgent()
-        self._verification_agent = CitationVerificationAgent(supabase=supabase)
-        self._document_agent = DocumentAnalysisAgent()
-        self._evidence_agent = EvidenceAnalyzerAgent()
-        self._risk_agent = RiskStrategyAgent()
+        self._research_agent = LegalResearchAgent(supabase=supabase, redis=redis, llm=self._llm)
+        self._reasoning_agent = IracReasoningAgent(llm=self._llm)
+        self._verification_agent = CitationVerificationAgent(supabase=supabase, llm=self._llm)
+        self._document_agent = DocumentAnalysisAgent(llm=self._llm)
+        self._evidence_agent = EvidenceAnalyzerAgent(llm=self._llm)
+        self._risk_agent = RiskStrategyAgent(llm=self._llm)
 
     # ── Public interface ───────────────────────────────────────────────────────
 
@@ -218,7 +220,7 @@ class WorkflowManager:
 
         # ── Step 6: Verification + Risk (parallel) ────────────────────────────
         agents_used.append("verification")
-        citations_to_verify = irac_data.get("citations", [])
+        citations_to_verify = self._extract_citations(irac_data)
 
         verify_coro = self._verification_agent.run(citations=citations_to_verify)
         risk_coro = (
@@ -240,11 +242,13 @@ class WorkflowManager:
 
         # ── Step 7: Confidence calculation ────────────────────────────────────
         reasoning_confidence = float(irac_data.get("confidence", 0.75))
+        research_quality = self._score_research_quality(research_data)
         verification_confidence = float(verification_data.get("_confidence", 1.0) if verification_data else 1.0)
         rejection_rate = float(verification_data.get("rejection_rate", 0.0) if verification_data else 0.0)
 
         final_confidence = reasoning_confidence * 0.7 + verification_confidence * 0.3
         final_confidence = max(0.0, final_confidence - rejection_rate * 0.2)
+        final_confidence = min(final_confidence, research_quality["confidence_cap"])
 
         escalated = final_confidence < self._settings.confidence_escalation_threshold
 
@@ -294,6 +298,8 @@ class WorkflowManager:
             irac_data=irac_data,
             verification_data=verification_data,
             risk_data=risk_data,
+            research_data=research_data,
+            quality=research_quality,
             agents_used=agents_used,
             confidence=final_confidence,
             processing_ms=processing_ms,
@@ -347,12 +353,70 @@ class WorkflowManager:
         raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
+    def _extract_citations(self, irac_data: dict) -> list[dict[str, Any]]:
+        explicit = irac_data.get("citations")
+        if isinstance(explicit, list) and explicit:
+            return [c if isinstance(c, dict) else {"ref": str(c)} for c in explicit]
+
+        citations: list[dict[str, Any]] = []
+        rule = (irac_data.get("irac") or {}).get("rule") or {}
+
+        for statute in rule.get("statutes") or []:
+            if not isinstance(statute, dict):
+                continue
+            ref = " ".join(
+                str(part).strip()
+                for part in (statute.get("name"), statute.get("section"))
+                if part
+            ).strip()
+            if ref:
+                citations.append({
+                    "ref": ref,
+                    "status": "UNVERIFIED",
+                    "year": statute.get("year"),
+                })
+
+        for precedent in rule.get("precedents") or []:
+            if not isinstance(precedent, dict):
+                continue
+            ref = str(precedent.get("case_no") or "").strip()
+            if ref:
+                citations.append({
+                    "ref": ref,
+                    "status": "UNVERIFIED",
+                    "note": precedent.get("court"),
+                })
+
+        seen: set[str] = set()
+        unique: list[dict[str, Any]] = []
+        for citation in citations:
+            key = citation["ref"].casefold()
+            if key not in seen:
+                seen.add(key)
+                unique.append(citation)
+        return unique
+
+    def _score_research_quality(self, research_data: dict | None) -> dict[str, Any]:
+        retrieval = (research_data or {}).get("retrieval") or {}
+        source = retrieval.get("source", "empty")
+        count = int(retrieval.get("count") or 0)
+
+        if source == "database" and count >= 5:
+            return {"level": "strong", "confidence_cap": 0.95, "reason": None}
+        if source == "database" and count > 0:
+            return {"level": "limited", "confidence_cap": 0.78, "reason": "limited_retrieved_context"}
+        if source == "stub":
+            return {"level": "development_stub", "confidence_cap": 0.45, "reason": "retriever_using_stub_context"}
+        return {"level": "insufficient", "confidence_cap": 0.35, "reason": "no_retrieved_legal_context"}
+
     def _build_response(
         self,
         *,
         irac_data: dict,
         verification_data: dict | None,
         risk_data: dict | None,
+        research_data: dict | None,
+        quality: dict[str, Any],
         agents_used: list[str],
         confidence: float,
         processing_ms: int,
@@ -367,6 +431,10 @@ class WorkflowManager:
             "processing_time_ms": processing_ms,
             "escalated_to_expert": escalated,
             "risk": risk_data,
+            "answer_quality": {
+                **quality,
+                "retrieval": (research_data or {}).get("retrieval", {}),
+            },
             "disclaimer": (
                 "คำตอบนี้เป็นข้อมูลทั่วไปเท่านั้น ไม่ใช่คำปรึกษาทางกฎหมายอย่างเป็นทางการ "
                 "/ This response is general information only and does not constitute formal legal advice."

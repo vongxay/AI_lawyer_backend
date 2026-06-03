@@ -179,6 +179,7 @@ class LegalQueryResponse(BaseModel):
     processing_time_ms: int = 0
     escalated_to_expert: bool = False
     risk: RiskAnalysis | dict | None = None
+    answer_quality: dict[str, Any] = Field(default_factory=dict)
     disclaimer: str
 
 
