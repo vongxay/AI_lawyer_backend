@@ -9,7 +9,7 @@ import asyncio
 import json
 from typing import Annotated, AsyncIterator
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from api.dependencies import WorkflowDep
@@ -19,7 +19,10 @@ from api.schemas import (
     LegalQueryResponse,
     VerifyCitationsRequest,
 )
+from agents.evidence_agent import EvidenceFile
+from core.config import get_settings
 from core.database import get_supabase
+from core.exceptions import FileTooLargeError, UnsupportedFileTypeError
 from core.logging import get_logger
 from core.security import CurrentUser, get_optional_user, require_roles
 
@@ -40,6 +43,53 @@ async def legal_query(
         question=payload.question,
         case_id=payload.case_id,
         jurisdiction=payload.jurisdiction,
+        user_id=user.sub if user else None,
+        tenant_id=user.tenant_id if user else None,
+    )
+    return result.response
+
+
+@router.post(
+    "/query/with-files",
+    response_model=LegalQueryResponse,
+    summary="Legal query with uploaded evidence files",
+)
+async def legal_query_with_files(
+    workflow: WorkflowDep,
+    user: OptionalUser,
+    question: str = Form(..., min_length=3, max_length=5000),
+    case_id: str | None = Form(default=None),
+    jurisdiction: str | None = Form(default=None),
+    files: list[UploadFile] = File(default_factory=list),
+) -> dict:
+    settings = get_settings()
+    evidence_files: list[EvidenceFile] = []
+
+    for upload in files:
+        if upload.content_type not in settings.allowed_mime_types:
+            raise UnsupportedFileTypeError(
+                f"'{upload.filename}' has unsupported type '{upload.content_type}'",
+                details={"allowed": sorted(settings.allowed_mime_types)},
+            )
+
+        content = await upload.read()
+        size_mb = len(content) / (1024 * 1024)
+        if size_mb > settings.max_upload_size_mb:
+            raise FileTooLargeError(f"'{upload.filename}' ({size_mb:.1f}MB) exceeds limit")
+
+        evidence_files.append(
+            EvidenceFile(
+                filename=upload.filename or "unnamed",
+                content_type=upload.content_type or "application/octet-stream",
+                content=content,
+            )
+        )
+
+    result = await workflow.orchestrate(
+        question=question.strip(),
+        case_id=case_id,
+        jurisdiction=jurisdiction,
+        evidence_files=evidence_files or None,
         user_id=user.sub if user else None,
         tenant_id=user.tenant_id if user else None,
     )

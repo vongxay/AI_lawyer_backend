@@ -29,6 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api import admin as admin_router
+from api import billing as billing_router
 from api import documents as documents_router
 from api import evidence as evidence_router
 from api import feedback as feedback_router
@@ -185,6 +186,7 @@ def create_app() -> FastAPI:
     app.include_router(evidence_router.router)
     app.include_router(memory_router.router)
     app.include_router(feedback_router.router)
+    app.include_router(billing_router.router)
     app.include_router(admin_router.router)
 
     # ── System endpoints ───────────────────────────────────────────────────────
