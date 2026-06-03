@@ -43,6 +43,7 @@ sentry-sdk[fastapi]>=1.30.0
 
 # Logging
 python-json-logger>=2.0.7
+structlog>=24.2.0
 
 # File Processing
 PyMuPDF>=1.23.0                  # PDF parsing
@@ -57,4 +58,3 @@ pytest-mock>=3.12.0
 # Development Tools
 ruff>=0.1.0                      # Linting
 black>=23.0.0                    # Formatting
-

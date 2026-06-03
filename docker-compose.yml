@@ -1,13 +1,13 @@
 version: "3.9"
 
 services:
-  # ── FastAPI Backend ──────────────────────────────────────────────────────────
+  # ── FastAPI Backend (Development) ───────────────────────────────────────────
   backend:
     build:
       context: .
-      target: deps         # Use deps stage for dev (has dev tools)
+      target: dev              # Use dev stage with hot reload support
     command: >
-      uvicorn backend.main:app
+      uvicorn main:app
       --host 0.0.0.0
       --port 8000
       --reload
@@ -25,15 +25,24 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./backend:/app/backend   # Hot reload in dev
+      - .:/app                         # Full app volume for hot reload
+      - /app/__pycache__               # Exclude pycache
     restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
   # ── Async Worker (ARQ) ───────────────────────────────────────────────────────
   worker:
     build:
       context: .
-      target: deps
-    command: python -m arq backend.workers.WorkerSettings
+      target: dev
+    command: python -m arq main:WorkerSettings
     environment:
       APP_ENV: development
       REDIS_URL: redis://redis:6379/0
@@ -42,14 +51,18 @@ services:
     depends_on:
       - redis
     volumes:
-      - ./backend:/app/backend
+      - .:/app
+      - /app/__pycache__
     restart: unless-stopped
+    networks:
+      - app-network
 
   # ── Redis ────────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    command: redis-server --appendonly yes  # Enable AOF persistence
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -58,6 +71,12 @@ services:
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    networks:
+      - app-network
 
 volumes:
   redis_data:
+
+networks:
+  app-network:
+    driver: bridge

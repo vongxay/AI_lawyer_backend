@@ -73,7 +73,7 @@ cp .env.example .env
 # Edit .env with your API keys
 
 # 5. Start server
-python -m uvicorn main:app --reload
+py -m uvicorn main:app --reload
 ```
 
 For complete deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
