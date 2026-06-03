@@ -36,7 +36,7 @@ class Retriever:
         try:
             return await self._hybrid_search(
                 query=query,
-                embedding=embedding or [],
+                embedding=embedding,
                 jurisdiction=canonical_jurisdiction(jurisdiction),
                 top_k=top_k,
             )
@@ -48,21 +48,76 @@ class Retriever:
         self,
         *,
         query: str,
-        embedding: list[float],
+        embedding: list[float] | None,
         jurisdiction: str | None,
         top_k: int,
     ) -> list[dict[str, Any]]:
         """
-        Calls the hybrid_legal_search Supabase RPC function defined in blueprint.
-        Returns fused + scored results.
+        Prefer chunk-level Agentic RAG search. Fall back to the legacy document
+        RPC while deployments are migrating.
         """
+        chunk_rows = await self._chunk_search(
+            query=query,
+            embedding=embedding,
+            jurisdiction=jurisdiction,
+            top_k=top_k,
+        )
+        if chunk_rows:
+            log.info("retriever.chunk_search.ok", results=len(chunk_rows), jurisdiction=jurisdiction)
+            return chunk_rows
+
+        if not embedding:
+            log.warning("retriever.no_embedding_for_legacy_search", jurisdiction=jurisdiction)
+            return []
+
+        return await self._legacy_hybrid_search(
+            query=query,
+            embedding=embedding,
+            jurisdiction=jurisdiction,
+            top_k=top_k,
+        )
+
+    async def _chunk_search(
+        self,
+        *,
+        query: str,
+        embedding: list[float] | None,
+        jurisdiction: str | None,
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {
+            "query_text": query,
+            "match_count": top_k,
+            "rrf_k": 60,
+            "p_status": "active",
+            "p_review_status": "approved",
+        }
+        if embedding:
+            params["query_embedding"] = embedding
+        if jurisdiction:
+            params["p_jurisdiction"] = jurisdiction
+
+        try:
+            result = await self._supabase.rpc("hybrid_document_chunk_search", params).execute()
+            return [self._normalise_row(row) for row in (result.data or [])]
+        except Exception as exc:
+            log.warning("retriever.chunk_search.failed", error=str(exc))
+            return []
+
+    async def _legacy_hybrid_search(
+        self,
+        *,
+        query: str,
+        embedding: list[float],
+        jurisdiction: str | None,
+        top_k: int,
+    ) -> list[dict[str, Any]]:
         params: dict[str, Any] = {
             "query_text": query,
             "match_count": top_k,
             "rrf_k": 60,
         }
-        if embedding:
-            params["query_embedding"] = embedding
+        params["query_embedding"] = embedding
         if jurisdiction:
             params["p_jurisdiction"] = jurisdiction
 
@@ -88,5 +143,7 @@ class Retriever:
             **row,
             "type": normalised_type,
             "section": row.get("section") or row.get("section_number") or metadata.get("section"),
+            "chunk_id": row.get("chunk_id") or metadata.get("chunk_id"),
+            "source_id": row.get("id") or metadata.get("source_id"),
             "source_url": row.get("source_url") or metadata.get("source_url"),
         }

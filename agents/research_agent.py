@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from agents.base_agent import BaseAgent
 from core.config import get_settings
+from core.exceptions import ProviderNotConfiguredError
 from core.jurisdiction import canonical_jurisdiction, needs_multilingual_embedding
 from core.logging import get_logger
 from rag.agentic_planner import AgenticRetrievalPlanner, RetrievalQuery
@@ -143,15 +144,22 @@ class LegalResearchAgent(BaseAgent):
         total_tokens = 0
 
         for item in plan[:5]:
-            embedding_result = await self._embedder.embed(
-                item.query,
-                multilingual=needs_multilingual_embedding(item.query, item.jurisdiction),
-            )
-            total_tokens += embedding_result.tokens
+            embedding_vector: list[float] | None = None
+            embedding_model: str | None = None
+            try:
+                embedding_result = await self._embedder.embed(
+                    item.query,
+                    multilingual=needs_multilingual_embedding(item.query, item.jurisdiction),
+                )
+                embedding_vector = embedding_result.vector
+                embedding_model = embedding_result.model
+                total_tokens += embedding_result.tokens
+            except ProviderNotConfiguredError as exc:
+                log.warning("research.embedding.unavailable_keyword_only", error=str(exc))
 
             chunks = await self._retriever.retrieve(
                 query=item.query,
-                embedding=embedding_result.vector,
+                embedding=embedding_vector,
                 jurisdiction=item.jurisdiction,
                 top_k=top_k,
             )
@@ -160,7 +168,8 @@ class LegalResearchAgent(BaseAgent):
                 "purpose": item.purpose,
                 "jurisdiction": item.jurisdiction,
                 "results": len(chunks),
-                "embedding_model": embedding_result.model,
+                "embedding_model": embedding_model,
+                "mode": "hybrid" if embedding_vector else "keyword_only",
             })
 
         return all_chunks, trace, total_tokens
@@ -186,7 +195,7 @@ class LegalResearchAgent(BaseAgent):
         seen: set[str] = set()
         unique: list[dict[str, Any]] = []
         for chunk in chunks:
-            key = str(chunk.get("id") or f"{chunk.get('title')}|{chunk.get('content', '')[:120]}")
+            key = str(chunk.get("chunk_id") or chunk.get("id") or f"{chunk.get('title')}|{chunk.get('content', '')[:120]}")
             if key not in seen:
                 seen.add(key)
                 unique.append(chunk)

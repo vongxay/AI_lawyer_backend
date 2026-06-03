@@ -285,18 +285,28 @@ class EmbeddingService:
             self._client = openai.AsyncOpenAI(api_key=self._api_key)
 
     async def embed(self, text: str, *, multilingual: bool = False) -> EmbeddingResult:
+        results = await self.embed_many([text], multilingual=multilingual)
+        return results[0]
+
+    async def embed_many(self, texts: list[str], *, multilingual: bool = False) -> list[EmbeddingResult]:
         if not self._api_key:
             raise ProviderNotConfiguredError(
                 "No real embedding API key is configured.",
                 details={"required_env": ["OPENAI_API_KEY"]},
             )
+        if not texts:
+            return []
 
         settings = get_settings()
         model = settings.embedding_model_multilingual if multilingual else self._model_en
-        response = await self._client.embeddings.create(input=text, model=model)
-        data = response.data[0]
-        return EmbeddingResult(
-            vector=data.embedding,
-            model=model,
-            tokens=response.usage.total_tokens,
-        )
+        response = await self._client.embeddings.create(input=texts, model=model)
+        total_tokens = int(getattr(response.usage, "total_tokens", 0) or 0)
+        per_item_tokens = total_tokens // max(1, len(response.data))
+        return [
+            EmbeddingResult(
+                vector=item.embedding,
+                model=model,
+                tokens=per_item_tokens,
+            )
+            for item in sorted(response.data, key=lambda item: getattr(item, "index", 0))
+        ]

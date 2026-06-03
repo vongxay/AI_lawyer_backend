@@ -246,6 +246,54 @@ async def delete_ingestion_job(job_id: str, user: AdminUser) -> dict:
     return {"status": "not_found", "id": job_id}
 
 
+@router.get("/rag/health", summary="Inspect chunk-level RAG readiness")
+async def get_rag_health(user: AdminUser) -> dict[str, Any]:
+    supabase = await get_supabase()
+    if not supabase:
+        return {"status": "degraded", "reason": "database_not_configured"}
+
+    try:
+        query = supabase.table("document_chunks").select(
+            "id, source_table, status, review_status, embedding"
+        ).limit(5000)
+        if user.tenant_id:
+            query = query.or_(f"tenant_id.is.null,tenant_id.eq.{user.tenant_id}")
+        result = await query.execute()
+    except Exception as exc:
+        log.warning("admin.rag_health.failed", error=str(exc))
+        return {
+            "status": "degraded",
+            "reason": "document_chunks_unavailable",
+            "detail": "Apply supabase_agentic_rag_chunks.sql to enable chunk-level Agentic RAG.",
+        }
+
+    rows = result.data or []
+    by_source: dict[str, dict[str, int]] = {}
+    for row in rows:
+        source = row.get("source_table") or "unknown"
+        bucket = by_source.setdefault(source, {"chunks": 0, "embedded": 0, "approved_active": 0})
+        bucket["chunks"] += 1
+        if row.get("embedding"):
+            bucket["embedded"] += 1
+        if row.get("status") == "active" and row.get("review_status") == "approved":
+            bucket["approved_active"] += 1
+
+    embedded = sum(1 for row in rows if row.get("embedding"))
+    approved_active = sum(
+        1 for row in rows
+        if row.get("status") == "active" and row.get("review_status") == "approved"
+    )
+    return {
+        "status": "ok",
+        "sample_limit": 5000,
+        "chunks": len(rows),
+        "embedded_chunks": embedded,
+        "approved_active_chunks": approved_active,
+        "embedding_coverage": round(embedded / len(rows), 4) if rows else 0,
+        "by_source": by_source,
+    }
+
+
 @router.get("/users", summary="List admin users")
 async def list_admin_users(
     user: AdminUser,

@@ -167,9 +167,12 @@ class IracReasoningAgent(BaseAgent):
 
         if research and research.get("retrieved_documents"):
             for chunk in research["retrieved_documents"][:10]:
+                section = f" {chunk.get('section')}" if chunk.get("section") else ""
+                score = f" score={chunk.get('final_score'):.4f}" if isinstance(chunk.get("final_score"), (int, float)) else ""
+                source = f" source={chunk.get('source_url')}" if chunk.get("source_url") else ""
                 doc_parts.append(
                     f"[{chunk.get('type', 'doc').upper()}] "
-                    f"{chunk.get('title', '')} "
+                    f"{chunk.get('title', '')}{section}{score}{source} "
                     f"— {chunk.get('content', '')[:500]}"
                 )
 

@@ -80,6 +80,34 @@ For complete deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ---
 
+## Agentic RAG For Large Legal Codes
+
+This backend uses RAG, not LLM fine-tuning. Admin uploads are extracted,
+split into legal-aware chunks, embedded in batches, and searched at query time.
+
+To enable chunk-level retrieval in Supabase, apply:
+
+```sql
+-- Supabase SQL Editor
+\i supabase_agentic_rag_chunks.sql
+```
+
+If your SQL editor does not support `\i`, open
+`supabase_agentic_rag_chunks.sql` and run its contents after the base schema.
+
+Useful admin endpoints:
+
+```bash
+POST /api/v1/admin/ingest/upload   # PDF/DOCX/TXT/MD legal ingestion
+POST /api/v1/admin/ingest/url      # Legal URL ingestion
+GET  /api/v1/admin/rag/health      # Chunk count, embedding coverage, approval readiness
+```
+
+Without this migration, FastAPI falls back to the legacy `hybrid_legal_search`
+RPC so existing deployments keep working.
+
+---
+
 ## Project Structure
 
 ```

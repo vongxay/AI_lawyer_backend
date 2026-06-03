@@ -52,12 +52,22 @@ class IngestionResult:
     title: str
     status: str
     chunks: int
+    chunks_indexed: int
+    chunks_embedded: int
     text_length: int
     embedding_model: str | None
     review_status: str
     document_type: str
     jurisdiction: str
     warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class LegalTextChunk:
+    index: int
+    content: str
+    section_ref: str | None
+    token_count: int
 
 
 class LegalDocumentIngestionService:
@@ -86,7 +96,11 @@ class LegalDocumentIngestionService:
                 "Document text is very short; add the full legal text before relying on search or AI answers."
             )
 
-        chunks = chunk_text(text)
+        chunks = chunk_legal_text(
+            text,
+            max_chars=self._settings.rag_chunk_max_chars,
+            overlap=self._settings.rag_chunk_overlap_chars,
+        )
         embedding = await self._embed_text(text, jurisdiction=item.jurisdiction)
         source_table = _source_table(item.document_type)
         job_id = str(uuid.uuid4())
@@ -104,6 +118,8 @@ class LegalDocumentIngestionService:
                 title=title,
                 status="processed_without_database",
                 chunks=len(chunks),
+                chunks_indexed=0,
+                chunks_embedded=0,
                 text_length=len(text),
                 embedding_model=embedding["model"],
                 review_status=item.review_status,
@@ -120,6 +136,15 @@ class LegalDocumentIngestionService:
             embedding=embedding["vector"],
             chunks=chunks,
         )
+        chunk_embedding = await self._embed_chunks(chunks, jurisdiction=item.jurisdiction)
+        chunks_indexed, chunk_index_warnings = await self._insert_chunks(
+            source_table=source_table,
+            document_id=document_id,
+            title=title,
+            item=item,
+            chunks=chunks,
+            embeddings=chunk_embedding["vectors"],
+        )
 
         log.info(
             "ingestion.completed",
@@ -127,6 +152,7 @@ class LegalDocumentIngestionService:
             document_id=document_id,
             source_table=source_table,
             chunks=len(chunks),
+            chunks_indexed=chunks_indexed,
             text_length=len(text),
         )
 
@@ -137,12 +163,14 @@ class LegalDocumentIngestionService:
             title=title,
             status="indexed",
             chunks=len(chunks),
+            chunks_indexed=chunks_indexed,
+            chunks_embedded=chunk_embedding["embedded"],
             text_length=len(text),
-            embedding_model=embedding["model"],
+            embedding_model=chunk_embedding["model"] or embedding["model"],
             review_status=item.review_status,
             document_type=item.document_type,
             jurisdiction=_short_jurisdiction(item.jurisdiction),
-            warnings=[*warnings, *embedding["warnings"]],
+            warnings=[*warnings, *embedding["warnings"], *chunk_embedding["warnings"], *chunk_index_warnings],
         )
 
     async def _embed_text(self, text: str, *, jurisdiction: str) -> dict[str, Any]:
@@ -164,6 +192,40 @@ class LegalDocumentIngestionService:
             log.warning("ingestion.embedding.failed", error=str(exc))
             raise ExternalServiceError(f"Embedding failed: {exc}") from exc
 
+    async def _embed_chunks(self, chunks: list[LegalTextChunk], *, jurisdiction: str) -> dict[str, Any]:
+        if not chunks:
+            return {"vectors": [], "embedded": 0, "model": None, "warnings": []}
+
+        texts = [chunk.content[:8000] for chunk in chunks]
+        multilingual = any(_needs_multilingual_embedding(text, jurisdiction) for text in texts[:20])
+        batch_size = max(1, self._settings.rag_embedding_batch_size)
+        vectors: list[list[float] | None] = []
+        model: str | None = None
+
+        try:
+            for start in range(0, len(texts), batch_size):
+                batch = texts[start:start + batch_size]
+                results = await self._embedder.embed_many(batch, multilingual=multilingual)
+                vectors.extend(result.vector for result in results)
+                model = model or (results[0].model if results else None)
+            return {
+                "vectors": vectors,
+                "embedded": len([vector for vector in vectors if vector]),
+                "model": model,
+                "warnings": [],
+            }
+        except ProviderNotConfiguredError as exc:
+            log.warning("ingestion.chunk_embedding.skipped", error=str(exc))
+            return {
+                "vectors": [None for _ in chunks],
+                "embedded": 0,
+                "model": None,
+                "warnings": ["Embedding provider is not configured; chunk vectors were not generated."],
+            }
+        except Exception as exc:
+            log.warning("ingestion.chunk_embedding.failed", error=str(exc))
+            raise ExternalServiceError(f"Chunk embedding failed: {exc}") from exc
+
     async def _insert_document(
         self,
         *,
@@ -172,7 +234,7 @@ class LegalDocumentIngestionService:
         text: str,
         item: IngestionInput,
         embedding: list[float] | None,
-        chunks: list[str],
+        chunks: list[LegalTextChunk],
     ) -> str:
         extracted = infer_lao_legal_metadata(text, title=title, source_url=item.source_url)
         metadata = {
@@ -222,6 +284,61 @@ class LegalDocumentIngestionService:
 
         raise ExternalServiceError(f"Could not persist document in {source_table}: {last_error}")
 
+    async def _insert_chunks(
+        self,
+        *,
+        source_table: str,
+        document_id: str,
+        title: str,
+        item: IngestionInput,
+        chunks: list[LegalTextChunk],
+        embeddings: list[list[float] | None],
+    ) -> tuple[int, list[str]]:
+        if not chunks:
+            return 0, []
+
+        payloads: list[dict[str, Any]] = []
+        status = _active_status_for_review(item.review_status)
+        for chunk in chunks:
+            embedding = embeddings[chunk.index] if chunk.index < len(embeddings) else None
+            payloads.append({
+                "tenant_id": item.tenant_id,
+                "source_table": source_table,
+                "source_id": document_id,
+                "document_type": item.document_type,
+                "jurisdiction": _db_jurisdiction(item.jurisdiction),
+                "title": title,
+                "chunk_index": chunk.index,
+                "section_ref": chunk.section_ref,
+                "content": chunk.content,
+                "token_count": chunk.token_count,
+                "status": status,
+                "review_status": item.review_status,
+                "metadata": {
+                    "file_name": item.filename,
+                    "source_url": item.source_url,
+                    "tags": item.tags,
+                    "law_no": item.law_no,
+                    "article": item.article,
+                    "ingestion_version": 3,
+                },
+                "embedding": _vector_literal(embedding) if embedding else None,
+            })
+
+        inserted = 0
+        try:
+            for start in range(0, len(payloads), 100):
+                batch = payloads[start:start + 100]
+                result = await self._supabase.table("document_chunks").insert(batch).execute()
+                inserted += len(result.data or batch)
+        except Exception as exc:
+            log.warning("ingestion.chunk_insert.failed", error=str(exc))
+            return inserted, [
+                "document_chunks table is not available; apply supabase_agentic_rag_chunks.sql to enable chunk-level RAG."
+            ]
+
+        return inserted, []
+
 
 def extract_text(content: bytes, content_type: str, filename: str) -> str:
     lower_name = filename.lower()
@@ -244,12 +361,75 @@ def extract_text(content: bytes, content_type: str, filename: str) -> str:
     raise UnsupportedFileTypeError(f"Unsupported legal document type '{content_type}'.")
 
 
+SECTION_HEADING_RE = re.compile(
+    r"(?im)^(?P<section>"
+    r"(?:มาตรา|ข้อ|หมวด|บทที่|ມາດຕາ|Article|Art\.|Section|Sec\.|Chapter|Part)"
+    r"\s+[0-9A-Za-zก-๙ກ-ຮ./-]+"
+    r")"
+)
+
+
 def chunk_text(text: str, *, max_chars: int = 3200, overlap: int = 300) -> list[str]:
+    return [chunk.content for chunk in chunk_legal_text(text, max_chars=max_chars, overlap=overlap)]
+
+
+def chunk_legal_text(text: str, *, max_chars: int = 2600, overlap: int = 350) -> list[LegalTextChunk]:
     clean = re.sub(r"\s+", " ", text).strip()
     if not clean:
         return []
 
+    chunks: list[LegalTextChunk] = []
+    raw_sections = _split_legal_sections(text)
+    chunk_index = 0
+
+    for section_ref, section_text in raw_sections:
+        for part_index, part in enumerate(_split_with_overlap(section_text, max_chars=max_chars, overlap=overlap)):
+            section = section_ref
+            if section_ref and part_index:
+                section = f"{section_ref} (continued {part_index + 1})"
+            chunks.append(LegalTextChunk(
+                index=chunk_index,
+                content=part,
+                section_ref=section,
+                token_count=max(1, len(part) // 4),
+            ))
+            chunk_index += 1
+
+    return chunks
+
+
+def _split_legal_sections(text: str) -> list[tuple[str | None, str]]:
+    matches = list(SECTION_HEADING_RE.finditer(text))
+    if not matches:
+        return [(None, re.sub(r"\s+", " ", text).strip())]
+
+    sections: list[tuple[str | None, str]] = []
+    first_start = matches[0].start()
+    if first_start > 100:
+        preamble = re.sub(r"\s+", " ", text[:first_start]).strip()
+        if preamble:
+            sections.append(("Preamble", preamble))
+
+    for index, match in enumerate(matches):
+        start = match.start()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        section_ref = re.sub(r"\s+", " ", match.group("section")).strip()
+        section_text = re.sub(r"\s+", " ", text[start:end]).strip()
+        if section_text:
+            sections.append((section_ref, section_text))
+
+    return sections or [(None, re.sub(r"\s+", " ", text).strip())]
+
+
+def _split_with_overlap(text: str, *, max_chars: int, overlap: int) -> list[str]:
+    clean = re.sub(r"\s+", " ", text).strip()
+    if not clean:
+        return []
+    if len(clean) <= max_chars:
+        return [clean]
+
     chunks: list[str] = []
+    safe_overlap = min(overlap, max_chars // 2)
     start = 0
     while start < len(clean):
         end = min(len(clean), start + max_chars)
@@ -259,18 +439,44 @@ def chunk_text(text: str, *, max_chars: int = 3200, overlap: int = 300) -> list[
         chunks.append(clean[start:end].strip())
         if end >= len(clean):
             break
-        start = max(0, end - overlap)
+        start = max(0, end - safe_overlap)
     return chunks
 
 
 def _extract_pdf(content: bytes) -> str:
+    errors: list[str] = []
+
     try:
         import fitz
 
-        doc = fitz.open(stream=content, filetype="pdf")
-        return "\n\n".join(page.get_text("text") for page in doc)
+        with fitz.open(stream=content, filetype="pdf") as doc:
+            text = "\n\n".join(page.get_text("text") for page in doc)
+        if text.strip():
+            return text
+        errors.append("PyMuPDF extracted no text; the PDF may be scanned or image-only.")
+    except ModuleNotFoundError:
+        errors.append("PyMuPDF is not installed. Install it with: py -m pip install PyMuPDF")
     except Exception as exc:
-        raise UnsupportedFileTypeError(f"PDF text extraction failed: {exc}") from exc
+        errors.append(f"PyMuPDF failed: {exc}")
+
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(content))
+        text = "\n\n".join(page.extract_text() or "" for page in reader.pages)
+        if text.strip():
+            return text
+        errors.append("pypdf extracted no text; the PDF may be scanned or image-only.")
+    except ModuleNotFoundError:
+        errors.append("pypdf is not installed. Install it with: py -m pip install pypdf")
+    except Exception as exc:
+        errors.append(f"pypdf failed: {exc}")
+
+    details = {"extractors": errors}
+    raise UnsupportedFileTypeError(
+        "PDF text extraction failed. Install PyMuPDF or pypdf, or upload a text-searchable PDF.",
+        details=details,
+    )
 
 
 def _extract_docx(content: bytes) -> str:

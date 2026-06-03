@@ -145,6 +145,7 @@ async def update_document(
         try:
             result = await supabase.table(table).update(mapped).eq("id", document_id).execute()
             if result.data:
+                await _update_document_chunks(supabase, table, document_id, mapped)
                 return {"status": "updated", "id": document_id, "source_table": table}
         except Exception as exc:
             log.warning("knowledge.update_table.failed", table=table, error=str(exc))
@@ -162,6 +163,7 @@ async def delete_document(document_id: str, user: AdminUser) -> dict:
         try:
             result = await supabase.table(table).delete().eq("id", document_id).execute()
             if result.data:
+                await _delete_document_chunks(supabase, table, document_id)
                 return {"status": "deleted", "id": document_id, "source_table": table}
         except Exception as exc:
             log.warning("knowledge.delete_table.failed", table=table, error=str(exc))
@@ -201,11 +203,60 @@ async def review_document(
                 .execute()
             )
             if result.data:
+                await _update_document_chunks(supabase, table, document_id, updates)
                 return {"status": review_status, "id": document_id, "source_table": table}
         except Exception as exc:
             log.warning("knowledge.review_table.failed", table=table, error=str(exc))
 
     return {"status": "not_found", "id": document_id}
+
+
+async def _update_document_chunks(
+    supabase: Any,
+    source_table: str,
+    document_id: str,
+    source_updates: dict[str, Any],
+) -> None:
+    updates: dict[str, Any] = {}
+    if "review_status" in source_updates:
+        updates["review_status"] = source_updates["review_status"]
+    if "status" in source_updates:
+        updates["status"] = source_updates["status"]
+    if "is_active" in source_updates:
+        updates["status"] = "active" if source_updates["is_active"] else "archived"
+    if "title" in source_updates:
+        updates["title"] = source_updates["title"]
+    if "case_no" in source_updates:
+        updates["title"] = source_updates["case_no"]
+    if "jurisdiction" in source_updates:
+        updates["jurisdiction"] = str(source_updates["jurisdiction"])
+
+    if not updates:
+        return
+
+    try:
+        await (
+            supabase.table("document_chunks")
+            .update(updates)
+            .eq("source_table", source_table)
+            .eq("source_id", document_id)
+            .execute()
+        )
+    except Exception as exc:
+        log.warning("knowledge.update_chunks.failed", source_table=source_table, error=str(exc))
+
+
+async def _delete_document_chunks(supabase: Any, source_table: str, document_id: str) -> None:
+    try:
+        await (
+            supabase.table("document_chunks")
+            .delete()
+            .eq("source_table", source_table)
+            .eq("source_id", document_id)
+            .execute()
+        )
+    except Exception as exc:
+        log.warning("knowledge.delete_chunks.failed", source_table=source_table, error=str(exc))
 
 
 def _map_document(table: str, fallback_type: str, row: dict[str, Any]) -> dict[str, Any]:

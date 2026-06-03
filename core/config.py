@@ -98,6 +98,9 @@ class Settings(BaseSettings):
     rag_top_k: int = 10
     graph_depth: int = 2
     citation_rejection_alert_rate: float = 0.20  # alert admin if > 20%
+    rag_chunk_max_chars: int = 2600
+    rag_chunk_overlap_chars: int = 350
+    rag_embedding_batch_size: int = 48
 
     # ── Storage ────────────────────────────────────────────────────────────────
     max_upload_size_mb: int = 50
