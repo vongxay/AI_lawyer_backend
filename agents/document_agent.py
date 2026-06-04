@@ -7,7 +7,7 @@ Handles:
 - PDF / Word contract analysis (clause extraction, risk flags)
 - Structured output: clauses, risk_flags, anomalies, summary
 
-Uses GPT-4o for best Thai/EN document understanding.
+Uses the configured document LLM for Thai/EN/LA document understanding.
 """
 from __future__ import annotations
 
@@ -86,7 +86,7 @@ class DocumentAnalysisAgent(BaseAgent):
             model=settings.model_document,
             system=_DOCUMENT_SYSTEM_PROMPT,
             user_message=user_msg,
-            max_tokens=4096,
+            max_tokens=settings.llm_max_tokens_document,
         )
 
         parsed = self._parse_document_response(result.text)

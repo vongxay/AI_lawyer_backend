@@ -78,12 +78,26 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
 
     # Model aliases — change here to swap models globally
-    model_reasoning: str = "claude-sonnet-4-20250514"   # IRAC complex reasoning
-    model_research: str = "claude-sonnet-4-20250514"    # Legal research / standard QA
-    model_verification: str = "gpt-4o-mini"             # Citation verification
-    model_document: str = "gpt-4o"                      # Document + vision analysis
-    model_evidence: str = "gpt-4o"                      # Evidence multimodal
-    model_risk: str = "claude-sonnet-4-20250514"        # Risk & strategy
+    # Low-cost Claude API default. Override only when a workflow needs a stronger model.
+    model_economy: str = "claude-haiku-4-5-20251001"
+    model_reasoning: str = "claude-haiku-4-5-20251001"      # IRAC reasoning
+    model_research: str = "claude-haiku-4-5-20251001"       # Legal research / standard QA
+    model_verification: str = "claude-haiku-4-5-20251001"   # Citation verification
+    model_document: str = "claude-haiku-4-5-20251001"       # Document analysis
+    model_evidence: str = "claude-haiku-4-5-20251001"       # Evidence analysis
+    model_risk: str = "claude-haiku-4-5-20251001"           # Risk & strategy
+
+    # LLM budget controls. Defaults are tuned for a small prepaid balance.
+    llm_economy_mode: bool = True
+    llm_fallback_to_economy_model: bool = True
+    llm_verify_citations_with_llm: bool = False
+    llm_max_tokens_reasoning: int = 1600
+    llm_max_tokens_document: int = 1400
+    llm_max_tokens_evidence: int = 1000
+    llm_max_tokens_risk: int = 1000
+    llm_max_tokens_verification: int = 350
+    llm_max_tokens_draft: int = 1500
+    llm_max_tokens_absolute: int = 1800
 
     # Embedding models
     embedding_model_en: str = "text-embedding-3-large"
@@ -116,6 +130,21 @@ class Settings(BaseSettings):
         return set(self.allowed_upload_types.split(","))
 
     # ── Validation ─────────────────────────────────────────────────────────────
+    @staticmethod
+    def _looks_configured_secret(value: str | None) -> bool:
+        if not value:
+            return False
+        stripped = value.strip()
+        return bool(stripped) and "..." not in stripped and not stripped.endswith("-")
+
+    @staticmethod
+    def _is_openai_model(model: str) -> bool:
+        return model.startswith("gpt") or model.startswith("o1")
+
+    @staticmethod
+    def _is_anthropic_model(model: str) -> bool:
+        return model.startswith("claude")
+
     @model_validator(mode="after")
     def warn_missing_secrets(self) -> "Settings":
         if self.app_env == "production":
@@ -129,11 +158,29 @@ class Settings(BaseSettings):
                 for name, val in [
                     ("SUPABASE_URL", self.supabase_url),
                     ("SUPABASE_KEY", self.supabase_key),
-                    ("OPENAI_API_KEY", self.openai_api_key),
-                    ("ANTHROPIC_API_KEY", self.anthropic_api_key),
                 ]
-                if not val
+                if not self._looks_configured_secret(val)
             ]
+            llm_models = [
+                self.model_economy,
+                self.model_reasoning,
+                self.model_research,
+                self.model_verification,
+                self.model_document,
+                self.model_evidence,
+                self.model_risk,
+            ]
+            has_anthropic_key = self._looks_configured_secret(self.anthropic_api_key)
+            has_openai_key = self._looks_configured_secret(self.openai_api_key)
+
+            if any(self._is_anthropic_model(model) for model in llm_models) and not has_anthropic_key:
+                missing.append("ANTHROPIC_API_KEY")
+            if (
+                any(self._is_openai_model(model) for model in llm_models)
+                and not has_openai_key
+                and not (self.llm_fallback_to_economy_model and has_anthropic_key)
+            ):
+                missing.append("OPENAI_API_KEY")
             if missing:
                 raise ValueError(f"Production requires these env vars: {missing}")
         return self

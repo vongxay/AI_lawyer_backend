@@ -96,7 +96,7 @@ class RiskStrategyAgent(BaseAgent):
             model=settings.model_risk,
             system=_RISK_SYSTEM_PROMPT,
             user_message=context_summary,
-            max_tokens=2048,
+            max_tokens=settings.llm_max_tokens_risk,
         )
 
         parsed = self._parse_strategy_response(result.text, conclusion)

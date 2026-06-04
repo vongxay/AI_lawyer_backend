@@ -3,8 +3,8 @@ agents/reasoning_agent.py
 ==========================
 IRAC Reasoning Agent — CORE agent, the heart of the system.
 
-Uses Claude Sonnet with a strict IRAC
-system prompt. Output is ALWAYS structured as Issue / Rule / Application / Conclusion.
+Uses the configured reasoning LLM with a strict IRAC system prompt.
+Output is ALWAYS structured as Issue / Rule / Application / Conclusion.
 
 Key constraints enforced:
 - Closed-loop: only generate from retrieved context
@@ -140,7 +140,7 @@ class IracReasoningAgent(BaseAgent):
             model=settings.model_reasoning,
             system=_IRAC_SYSTEM_PROMPT,
             user_message=user_message,
-            max_tokens=4096,
+            max_tokens=settings.llm_max_tokens_reasoning,
         )
 
         parsed = self._parse_irac_response(result.text, question)

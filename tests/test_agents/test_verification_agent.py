@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from agents.verification_agent import CitationVerificationAgent
+from core.config import get_settings
 from services.llm_service import LlmResult
 
 
@@ -25,8 +26,8 @@ def mock_llm_plausible():
         text=json.dumps([
             {"ref": "ประมวลกฎหมายแพ่งและพาณิชย์ มาตรา 420", "plausible": True, "reason": "Known Thai tort law"},
         ]),
-        model="gpt-4o-mini",
-        provider="openai",
+        model="claude-haiku-4-5-20251001",
+        provider="anthropic",
     ))
     return llm
 
@@ -44,6 +45,8 @@ class TestCitationVerificationAgent:
         result = await agent_no_db.run(citations=citations)
         assert result.ok
         assert len(result.data["citations"]) == 1
+        assert result.data["citations"][0]["status"] == "UNVERIFIED"
+        mock_llm_plausible.generate.assert_not_called()
 
     async def test_rejection_rate_computed(self, agent_no_db):
         """When LLM service is stub, citations should stay UNVERIFIED (not REJECTED)."""
@@ -58,15 +61,22 @@ class TestCitationVerificationAgent:
         assert all(c["status"] == "UNVERIFIED" for c in verified)
 
     async def test_confidence_decreases_with_rejections(self, agent_no_db, mock_llm_plausible):
+        settings = get_settings()
+        previous = settings.llm_verify_citations_with_llm
+        settings.llm_verify_citations_with_llm = True
         mock_llm_plausible.generate = AsyncMock(return_value=LlmResult(
             text=json.dumps([
                 {"ref": "fake citation 123", "plausible": False, "reason": "Does not exist"},
             ]),
             model="stub", provider="stub",
         ))
-        agent_no_db._llm = mock_llm_plausible
-        citations = [{"ref": "fake citation 123", "status": "UNVERIFIED"}]
-        result = await agent_no_db.run(citations=citations)
-        assert result.ok
-        # Rejected citation should reduce confidence
-        # (confidence = max(0, 1.0 - rejection_rate * 2))
+        try:
+            agent_no_db._llm = mock_llm_plausible
+            citations = [{"ref": "fake citation 123", "status": "UNVERIFIED"}]
+            result = await agent_no_db.run(citations=citations)
+            assert result.ok
+            assert result.data["citations"][0]["status"] == "REJECTED"
+            assert result.data["rejection_rate"] == 1.0
+            assert result.confidence == 0.0
+        finally:
+            settings.llm_verify_citations_with_llm = previous

@@ -57,7 +57,7 @@ def mock_llm():
             "confidence": 0.85,
             "citations": [{"ref": "มาตรา 420", "status": "UNVERIFIED"}],
         }),
-        model="claude-sonnet-4-20250514",
+        model="claude-haiku-4-5-20251001",
         input_tokens=400,
         output_tokens=250,
         provider="anthropic",

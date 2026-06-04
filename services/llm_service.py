@@ -207,6 +207,43 @@ class LlmService:
             return self._openai
         return None
 
+    def _required_env_for_model(self, model: str) -> list[str]:
+        if model.startswith("claude"):
+            return ["ANTHROPIC_API_KEY"]
+        if model.startswith("gpt") or model.startswith("o1"):
+            return ["OPENAI_API_KEY"]
+        return ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]
+
+    def _cap_max_tokens(self, requested: int) -> int:
+        settings = get_settings()
+        cap = max(1, int(settings.llm_max_tokens_absolute))
+        effective = max(1, min(int(requested), cap))
+        if effective != requested:
+            log.warning("llm.max_tokens.capped", requested_max_tokens=requested, max_tokens=effective)
+        return effective
+
+    def _resolve_model_and_provider(self, model: str):
+        provider = self._get_provider(model)
+        if provider is not None:
+            return model, provider
+
+        settings = get_settings()
+        fallback_model = settings.model_economy
+        fallback_provider = self._get_provider(fallback_model)
+        if (
+            settings.llm_fallback_to_economy_model
+            and fallback_provider is not None
+            and fallback_model != model
+        ):
+            log.warning(
+                "llm.model_fallback",
+                requested_model=model,
+                fallback_model=fallback_model,
+            )
+            return fallback_model, fallback_provider
+
+        return model, None
+
     async def generate(
         self,
         *,
@@ -216,31 +253,33 @@ class LlmService:
         max_tokens: int = 4096,
         temperature: float = 0.1,
     ) -> LlmResult:
-        provider = self._get_provider(model)
+        effective_model, provider = self._resolve_model_and_provider(model)
         if provider is None:
             raise ProviderNotConfiguredError(
                 "No real LLM API key is configured for this model.",
-                details={"model": model, "required_env": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]},
+                details={"model": model, "required_env": self._required_env_for_model(effective_model)},
             )
+        effective_max_tokens = self._cap_max_tokens(max_tokens)
         try:
             result = await provider.generate(
-                model=model,
+                model=effective_model,
                 messages=messages,
                 system=system,
-                max_tokens=max_tokens,
+                max_tokens=effective_max_tokens,
                 temperature=temperature,
             )
             log.info(
                 "llm.generate.ok",
-                model=model,
+                model=effective_model,
+                requested_model=model,
                 provider=result.provider,
                 tokens_in=result.input_tokens,
                 tokens_out=result.output_tokens,
             )
             return result
         except Exception as exc:
-            log.error("llm.generate.failed", model=model, error=str(exc))
-            raise ExternalServiceError(f"LLM call failed for model {model}: {exc}") from exc
+            log.error("llm.generate.failed", model=effective_model, requested_model=model, error=str(exc))
+            raise ExternalServiceError(f"LLM call failed for model {effective_model}: {exc}") from exc
 
     async def stream(
         self,
@@ -250,13 +289,19 @@ class LlmService:
         system: str | None = None,
         max_tokens: int = 4096,
     ) -> AsyncIterator[str]:
-        provider = self._get_provider(model)
+        effective_model, provider = self._resolve_model_and_provider(model)
         if provider is None:
             raise ProviderNotConfiguredError(
                 "No real LLM API key is configured for streaming.",
-                details={"model": model, "required_env": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]},
+                details={"model": model, "required_env": self._required_env_for_model(effective_model)},
             )
-        async for chunk in provider.stream(model=model, messages=messages, system=system, max_tokens=max_tokens):
+        effective_max_tokens = self._cap_max_tokens(max_tokens)
+        async for chunk in provider.stream(
+            model=effective_model,
+            messages=messages,
+            system=system,
+            max_tokens=effective_max_tokens,
+        ):
             yield chunk
 
 

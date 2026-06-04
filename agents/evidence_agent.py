@@ -141,7 +141,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
             model=model,
             system=_EVIDENCE_SYSTEM_PROMPT,
             user_message=user_msg,
-            max_tokens=2048,
+            max_tokens=get_settings().llm_max_tokens_evidence,
         )
         parsed = self._parse_evidence_response(result.text)
         parsed.update({"filename": ev_file.filename, "_tokens": result.total_tokens})
@@ -160,7 +160,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
             model=model,
             system=_AUDIO_ANALYSIS_PROMPT,
             user_message=user_msg,
-            max_tokens=2048,
+            max_tokens=get_settings().llm_max_tokens_evidence,
         )
         parsed = self._parse_evidence_response(result.text)
         parsed.update({
@@ -181,7 +181,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
             model=model,
             system=_EVIDENCE_SYSTEM_PROMPT,
             user_message=user_msg,
-            max_tokens=2048,
+            max_tokens=get_settings().llm_max_tokens_evidence,
         )
         parsed = self._parse_evidence_response(result.text)
         parsed.update({"filename": ev_file.filename, "_tokens": result.total_tokens})

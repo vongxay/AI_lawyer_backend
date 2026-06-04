@@ -5,7 +5,7 @@ Citation Verification Agent — CORE agent, runs on every query.
 
 Verifies each citation produced by the IRAC Reasoning Agent against:
 1. Supabase knowledge base (laws + cases tables)
-2. LLM cross-check for plausibility
+2. Optional LLM cross-check for plausibility
 
 Status matrix:
     VERIFIED    — found in DB and currently ACTIVE
@@ -200,6 +200,13 @@ class CitationVerificationAgent(BaseAgent):
     async def _llm_plausibility_check(self, citations: list[dict]) -> list[dict]:
         """Use fast LLM model to assess plausibility of citations not in DB."""
         settings = get_settings()
+        if not settings.llm_verify_citations_with_llm:
+            log.info("verification.llm_check.skipped", reason="disabled_by_config", citations=len(citations))
+            return [
+                {**c, "status": "UNVERIFIED", "note": "Not found in DB; LLM plausibility check disabled"}
+                for c in citations
+            ]
+
         refs_text = "\n".join(f"- {c.get('ref', '')}" for c in citations)
         user_msg = f"Assess these legal citations for plausibility:\n{refs_text}"
 
@@ -208,7 +215,7 @@ class CitationVerificationAgent(BaseAgent):
                 model=settings.model_verification,
                 system=_VERIFY_SYSTEM_PROMPT,
                 user_message=user_msg,
-                max_tokens=1024,
+                max_tokens=settings.llm_max_tokens_verification,
             )
             import json, re
             clean = re.sub(r"```(?:json)?\s*|\s*```", "", result.text.strip())

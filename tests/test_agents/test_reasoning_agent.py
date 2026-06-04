@@ -41,7 +41,7 @@ def mock_llm():
     llm = MagicMock()
     llm.generate = AsyncMock(return_value=LlmResult(
         text=VALID_IRAC_JSON,
-        model="claude-sonnet-4-20250514",
+        model="claude-haiku-4-5-20251001",
         input_tokens=500,
         output_tokens=300,
         provider="anthropic",

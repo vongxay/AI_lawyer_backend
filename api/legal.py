@@ -185,7 +185,7 @@ async def draft_document(
         model=settings.model_document,
         system=system_prompt,
         messages=[Message(role="user", content=user_prompt)],
-        max_tokens=2500,
+        max_tokens=settings.llm_max_tokens_draft,
         temperature=0.1,
     )
     content = result.text.strip()
