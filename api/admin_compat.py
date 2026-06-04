@@ -8,11 +8,13 @@ reusing Supabase tables as the current source of truth.
 """
 from __future__ import annotations
 
+import hashlib
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 
 from core.config import get_settings
 from core.database import get_supabase, ping_redis, ping_supabase
@@ -30,19 +32,25 @@ async def get_admin_health(user: AdminUser) -> dict[str, Any]:
     started = time.perf_counter()
     redis_ok = await ping_redis()
     redis_latency = int((time.perf_counter() - started) * 1000)
+    redis_available = _redis_available(redis_ok, settings)
     started = time.perf_counter()
     supabase_ok = await ping_supabase()
     supabase_latency = int((time.perf_counter() - started) * 1000)
 
     configured_llm = _provider_configured(settings.model_reasoning)
-    status_value = "ok" if supabase_ok and configured_llm else "degraded"
+    status_value = "ok" if supabase_ok and configured_llm and redis_available else "degraded"
     return {
         "status": status_value,
         "version": settings.app_version,
         "environment": settings.app_env,
         "services": {
             "fastapi": {"ok": True, "latency_ms": 0},
-            "redis": {"ok": redis_ok, "latency_ms": redis_latency},
+            "redis": {
+                "ok": redis_available,
+                "connected": redis_ok,
+                "mode": _redis_mode(redis_ok, settings),
+                "latency_ms": redis_latency,
+            },
             "supabase": {"ok": supabase_ok, "latency_ms": supabase_latency},
             "anthropic": {"ok": bool(settings.anthropic_api_key)},
             "openai": {"ok": bool(settings.openai_api_key)},
@@ -82,6 +90,7 @@ async def get_system_monitor(user: AdminUser) -> dict[str, Any]:
     started = time.perf_counter()
     redis_ok = await ping_redis()
     redis_latency = int((time.perf_counter() - started) * 1000)
+    redis_available = _redis_available(redis_ok, settings)
     started = time.perf_counter()
     supabase_ok = await ping_supabase()
     supabase_latency = int((time.perf_counter() - started) * 1000)
@@ -89,7 +98,13 @@ async def get_system_monitor(user: AdminUser) -> dict[str, Any]:
     services = [
         _service_status("FastAPI", True, 0, "Backend API is accepting authenticated admin requests.", "API"),
         _service_status("Supabase", supabase_ok, supabase_latency, "Database and Auth project connectivity.", "Database"),
-        _service_status("Redis", redis_ok, redis_latency, "Cache and rate-limit backend connectivity.", "Cache"),
+        _service_status(
+            "Redis / Local Cache",
+            redis_available,
+            redis_latency,
+            "Redis connectivity, or in-memory cache fallback when Redis is optional.",
+            "Cache",
+        ),
         _service_status("Anthropic", bool(settings.anthropic_api_key), None, "Claude provider configured for LLM agents.", "AI"),
         _service_status(
             "OpenAI Embeddings",
@@ -129,7 +144,7 @@ async def get_system_monitor(user: AdminUser) -> dict[str, Any]:
         "latencyData": _latency_buckets(audit_rows, supabase_latency=supabase_latency, redis_latency=redis_latency),
         "resourceUsage": [
             {"name": "Database", "value": 1 if supabase_ok else 0, "color": "hsl(var(--primary))"},
-            {"name": "Cache", "value": 1 if redis_ok else 0, "color": "hsl(var(--sky-info))"},
+            {"name": "Cache", "value": 1 if redis_available else 0, "color": "hsl(var(--sky-info))"},
             {"name": "LLM", "value": 1 if settings.anthropic_api_key else 0, "color": "hsl(var(--amber-warning))"},
         ],
     }
@@ -602,6 +617,63 @@ async def create_uploaded_document(payload: dict[str, Any], user: AdminUser) -> 
     return row
 
 
+@router.post("/documents/upload", summary="Upload a document file into private storage")
+async def upload_admin_document(
+    user: AdminUser,
+    file: UploadFile = File(...),
+    title: str | None = Form(default=None),
+    doc_type: str | None = Form(default=None, alias="type"),
+    source: str | None = Form(default=None),
+    confidential: bool = Form(default=False),
+    legal_case_id: str | None = Form(default=None),
+    session_id: str | None = Form(default=None),
+    tenant_id: str | None = Form(default=None),
+) -> dict[str, Any]:
+    supabase = await _require_supabase()
+    resolved_tenant_id = tenant_id or user.tenant_id
+    if not resolved_tenant_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="tenant_id is required.")
+
+    uploaded = await _store_admin_upload(
+        supabase,
+        file=file,
+        kind="document",
+        tenant_id=str(resolved_tenant_id),
+        title=title,
+    )
+    payload = _document_payload(
+        {
+            "title": title or uploaded["file_name"],
+            "file_path": uploaded["file_path"],
+            "file_type": uploaded["content_type"],
+            "file_size_bytes": uploaded["file_size_bytes"],
+            "type": doc_type,
+            "source": source,
+            "is_privileged": confidential,
+            "legal_case_id": legal_case_id,
+            "session_id": session_id,
+        },
+        user=user,
+        tenant_id=str(resolved_tenant_id),
+    )
+    payload["file_name"] = uploaded["file_name"]
+    payload["checksum"] = uploaded["checksum"]
+    row = await _insert_row(supabase, "documents", payload)
+    if not row:
+        await _remove_storage_object(supabase, bucket=_storage_bucket("document"), path=uploaded["file_path"])
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Document could not be created.")
+    return row
+
+
+@router.get("/documents/{document_id}/signed-url", summary="Create a signed download URL for a private document")
+async def get_document_signed_url(document_id: str, user: AdminUser) -> dict[str, Any]:
+    supabase = await _require_supabase()
+    row = await _get_row(supabase, "documents", document_id, tenant_id=user.tenant_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+    return await _create_storage_signed_url(supabase, bucket=_storage_bucket("document"), path=str(row.get("file_path") or ""))
+
+
 @router.patch("/documents/{document_id}", summary="Update uploaded document metadata")
 async def update_uploaded_document(document_id: str, payload: dict[str, Any], user: AdminUser) -> dict[str, Any]:
     supabase = await _require_supabase()
@@ -614,9 +686,13 @@ async def update_uploaded_document(document_id: str, payload: dict[str, Any], us
 @router.delete("/documents/{document_id}", summary="Delete an uploaded document")
 async def delete_uploaded_document(document_id: str, user: AdminUser) -> dict[str, str]:
     supabase = await _require_supabase()
+    row = await _get_row(supabase, "documents", document_id, tenant_id=user.tenant_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
     deleted = await _delete_row(supabase, "documents", document_id, tenant_id=user.tenant_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+    await _remove_storage_object(supabase, bucket=_storage_bucket("document"), path=str(row.get("file_path") or ""))
     return {"status": "deleted", "id": document_id}
 
 
@@ -640,6 +716,62 @@ async def create_uploaded_evidence(payload: dict[str, Any], user: AdminUser) -> 
     return row
 
 
+@router.post("/evidence/upload", summary="Upload evidence into private storage")
+async def upload_admin_evidence(
+    user: AdminUser,
+    file: UploadFile = File(...),
+    title: str | None = Form(default=None),
+    evidence_type: str | None = Form(default=None, alias="type"),
+    source: str | None = Form(default=None),
+    is_original: bool = Form(default=True),
+    legal_case_id: str | None = Form(default=None),
+    session_id: str | None = Form(default=None),
+    tenant_id: str | None = Form(default=None),
+) -> dict[str, Any]:
+    supabase = await _require_supabase()
+    resolved_tenant_id = tenant_id or user.tenant_id
+    if not resolved_tenant_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="tenant_id is required.")
+
+    uploaded = await _store_admin_upload(
+        supabase,
+        file=file,
+        kind="evidence",
+        tenant_id=str(resolved_tenant_id),
+        title=title,
+    )
+    payload = _evidence_payload(
+        {
+            "title": title or uploaded["file_name"],
+            "file_path": uploaded["file_path"],
+            "mimeType": uploaded["content_type"],
+            "file_size_bytes": uploaded["file_size_bytes"],
+            "type": evidence_type,
+            "source": source,
+            "is_original": is_original,
+            "legal_case_id": legal_case_id,
+            "session_id": session_id,
+        },
+        user=user,
+        tenant_id=str(resolved_tenant_id),
+    )
+    payload["file_name"] = uploaded["file_name"]
+    row = await _insert_row(supabase, "evidence", payload)
+    if not row:
+        await _remove_storage_object(supabase, bucket=_storage_bucket("evidence"), path=uploaded["file_path"])
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Evidence could not be created.")
+    return row
+
+
+@router.get("/evidence/{evidence_id}/signed-url", summary="Create a signed download URL for private evidence")
+async def get_evidence_signed_url(evidence_id: str, user: AdminUser) -> dict[str, Any]:
+    supabase = await _require_supabase()
+    row = await _get_row(supabase, "evidence", evidence_id, tenant_id=user.tenant_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evidence not found.")
+    return await _create_storage_signed_url(supabase, bucket=_storage_bucket("evidence"), path=str(row.get("file_path") or ""))
+
+
 @router.patch("/evidence/{evidence_id}", summary="Update uploaded evidence metadata")
 async def update_uploaded_evidence(evidence_id: str, payload: dict[str, Any], user: AdminUser) -> dict[str, Any]:
     supabase = await _require_supabase()
@@ -652,9 +784,13 @@ async def update_uploaded_evidence(evidence_id: str, payload: dict[str, Any], us
 @router.delete("/evidence/{evidence_id}", summary="Delete uploaded evidence")
 async def delete_uploaded_evidence(evidence_id: str, user: AdminUser) -> dict[str, str]:
     supabase = await _require_supabase()
+    row = await _get_row(supabase, "evidence", evidence_id, tenant_id=user.tenant_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evidence not found.")
     deleted = await _delete_row(supabase, "evidence", evidence_id, tenant_id=user.tenant_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evidence not found.")
+    await _remove_storage_object(supabase, bucket=_storage_bucket("evidence"), path=str(row.get("file_path") or ""))
     return {"status": "deleted", "id": evidence_id}
 
 
@@ -1324,6 +1460,167 @@ def _metadata_file_path(tenant_id: str, file_name: str) -> str:
     return f"admin-metadata/{tenant_id}/{int(time.time())}-{_safe_file_name(file_name)}"
 
 
+async def _store_admin_upload(
+    supabase: Any,
+    *,
+    file: UploadFile,
+    kind: str,
+    tenant_id: str,
+    title: str | None,
+) -> dict[str, Any]:
+    settings = get_settings()
+    original_name = _safe_file_name(file.filename or title or kind)
+    content_type = _normalise_upload_mime(file.content_type, original_name)
+    allowed = _storage_allowed_mime(kind)
+    if content_type not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Unsupported {kind} file type: {content_type}.",
+        )
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty.")
+
+    max_bytes = settings.max_upload_size_mb * 1024 * 1024
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Uploaded file exceeds {settings.max_upload_size_mb}MB limit.",
+        )
+
+    stored_name = _safe_file_name(title or original_name)
+    object_path = _storage_file_path(tenant_id, kind, original_name)
+    bucket = _storage_bucket(kind)
+    try:
+        await supabase.storage.from_(bucket).upload(
+            object_path,
+            content,
+            {
+                "content-type": content_type,
+                "cache-control": "3600",
+                "upsert": "false",
+            },
+        )
+    except Exception as exc:
+        log.warning("admin.storage_upload.failed", bucket=bucket, path=object_path, error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="File could not be uploaded to Supabase Storage.",
+        ) from exc
+
+    return {
+        "file_name": stored_name,
+        "file_path": object_path,
+        "content_type": content_type,
+        "file_size_bytes": len(content),
+        "checksum": hashlib.sha256(content).hexdigest(),
+    }
+
+
+async def _create_storage_signed_url(supabase: Any, *, bucket: str, path: str) -> dict[str, Any]:
+    settings = get_settings()
+    if not path or path.startswith("admin-metadata/"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stored file is not available for download.")
+    try:
+        result = await supabase.storage.from_(bucket).create_signed_url(path, settings.storage_signed_url_ttl_seconds)
+    except Exception as exc:
+        log.warning("admin.storage_signed_url.failed", bucket=bucket, path=path, error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Signed download URL could not be created.",
+        ) from exc
+
+    signed_url = (
+        result.get("signedURL")
+        or result.get("signedUrl")
+        or result.get("signed_url")
+        or result.get("url")
+    )
+    if not signed_url:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Signed download URL was not returned.")
+    return {
+        "signed_url": signed_url,
+        "signedUrl": signed_url,
+        "expires_in": settings.storage_signed_url_ttl_seconds,
+        "expiresIn": settings.storage_signed_url_ttl_seconds,
+        "path": path,
+        "bucket": bucket,
+    }
+
+
+async def _remove_storage_object(supabase: Any, *, bucket: str, path: str) -> None:
+    if not path or path.startswith("admin-metadata/"):
+        return
+    try:
+        await supabase.storage.from_(bucket).remove([path])
+    except Exception as exc:
+        log.warning("admin.storage_remove.failed", bucket=bucket, path=path, error=str(exc))
+
+
+def _storage_bucket(kind: str) -> str:
+    settings = get_settings()
+    return settings.supabase_evidence_bucket if kind == "evidence" else settings.supabase_documents_bucket
+
+
+def _storage_file_path(tenant_id: str, kind: str, file_name: str) -> str:
+    day = datetime.now(timezone.utc).strftime("%Y/%m/%d")
+    safe_tenant = _safe_path_segment(tenant_id)
+    safe_name = _safe_path_segment(file_name)
+    return f"{safe_tenant}/{kind}/{day}/{uuid.uuid4().hex}-{safe_name}"
+
+
+def _safe_path_segment(value: str) -> str:
+    return _safe_file_name(value).replace(" ", "_")
+
+
+def _normalise_upload_mime(content_type: str | None, file_name: str) -> str:
+    mime = (content_type or "").split(";")[0].strip().lower()
+    suffix = file_name.lower().rsplit(".", 1)[-1] if "." in file_name else ""
+    if mime in {"", "application/octet-stream"}:
+        mime = {
+            "pdf": "application/pdf",
+            "doc": "application/msword",
+            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "txt": "text/plain",
+            "csv": "text/csv",
+            "jpg": "image/jpeg",
+            "jpeg": "image/jpeg",
+            "png": "image/png",
+            "webp": "image/webp",
+            "mp3": "audio/mpeg",
+            "wav": "audio/wav",
+            "mp4": "video/mp4",
+            "zip": "application/zip",
+        }.get(suffix, mime or "application/octet-stream")
+    if mime == "audio/x-wav":
+        return "audio/wav"
+    if mime == "application/x-zip-compressed":
+        return "application/zip"
+    return mime
+
+
+def _storage_allowed_mime(kind: str) -> set[str]:
+    if kind == "evidence":
+        return {
+            "application/pdf",
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "audio/mpeg",
+            "audio/wav",
+            "video/mp4",
+            "application/zip",
+        }
+    return {
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "text/plain",
+        "text/csv",
+    }
+
+
 def _normalise_feedback(row: dict[str, Any], users: dict[str, dict[str, Any]]) -> dict[str, Any]:
     user_row = users.get(str(row.get("user_id") or ""), {})
     return {
@@ -1365,6 +1662,20 @@ def _provider_configured(model: str | None) -> bool:
     if name.startswith(("gpt", "o1", "o3", "o4")):
         return bool(settings.openai_api_key)
     return True
+
+
+def _redis_required(settings: Any) -> bool:
+    return bool(settings.redis_required or settings.is_production())
+
+
+def _redis_available(redis_ok: bool, settings: Any) -> bool:
+    return redis_ok or not _redis_required(settings)
+
+
+def _redis_mode(redis_ok: bool, settings: Any) -> str:
+    if redis_ok:
+        return "redis"
+    return "unavailable" if _redis_required(settings) else "memory_fallback"
 
 
 async def _fetch_audit_rows(

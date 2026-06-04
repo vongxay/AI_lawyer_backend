@@ -111,6 +111,8 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
 
         # Get rate limit for this endpoint
         limit = self._endpoint_limits.get(endpoint, self._default_limit)
+        if endpoint.startswith("/api/v1/admin/"):
+            limit = max(limit, 30 if endpoint.endswith("/upload") else 120)
 
         # Check rate limit
         result = await self._check_rate_limit(client_id, limit)

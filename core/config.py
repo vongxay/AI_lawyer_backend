@@ -67,6 +67,7 @@ class Settings(BaseSettings):
 
     # ── Cache — Redis ──────────────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
+    redis_required: bool = False
     redis_max_connections: int = 20
     redis_socket_timeout_seconds: float = 0.5
     cache_ttl_embedding_seconds: int = 86_400   # 24h
@@ -123,6 +124,9 @@ class Settings(BaseSettings):
     # ── Storage ────────────────────────────────────────────────────────────────
     max_upload_size_mb: int = 50
     max_request_body_mb: int = 55
+    supabase_documents_bucket: str = "documents"
+    supabase_evidence_bucket: str = "evidence"
+    storage_signed_url_ttl_seconds: int = 3600
     url_ingest_max_documents: int = 10
     pdf_ocr_enabled: bool = True
     pdf_detect_garbled_text: bool = True
@@ -133,8 +137,8 @@ class Settings(BaseSettings):
     tessdata_prefix: str | None = None
     allowed_upload_types: str = (
         "application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,"
-        "application/msword,text/plain,text/markdown,image/jpeg,image/png,image/webp,"
-        "audio/mpeg,audio/wav,audio/mp4,video/mp4"
+        "application/msword,text/plain,text/csv,text/markdown,image/jpeg,image/png,image/webp,"
+        "audio/mpeg,audio/wav,audio/x-wav,audio/mp4,video/mp4,application/zip,application/x-zip-compressed"
     )
 
     @property

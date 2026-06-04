@@ -172,7 +172,7 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
     )
     
@@ -207,10 +207,14 @@ def create_app() -> FastAPI:
     async def health() -> dict:
         redis_ok = await ping_redis()
         supabase_ok = await ping_supabase()
-        overall = "ok" if (redis_ok and supabase_ok) else "degraded"
+        redis_required = settings.redis_required or settings.is_production()
+        redis_available = redis_ok or not redis_required
+        overall = "ok" if (redis_available and supabase_ok) else "degraded"
         return {
             "status": overall,
             "redis": redis_ok,
+            "redis_required": redis_required,
+            "redis_mode": "redis" if redis_ok else ("memory_fallback" if not redis_required else "unavailable"),
             "supabase": supabase_ok,
             "version": settings.app_version,
         }
