@@ -44,6 +44,21 @@ class AgenticRetrievalPlanner:
         if canonical == "laos":
             return self._dedupe([
                 RetrievalQuery(
+                    query=f"{question} ກົດໝາຍວ່າດ້ວຍ ມາດຕາ ດຳລັດ ຄຳສັ່ງ ສັນຍາ ເຊົ່າ",
+                    purpose="lao_statute_second_pass",
+                    jurisdiction=canonical,
+                    priority=2,
+                ),
+                RetrievalQuery(
+                    query=f"{question} Lao PDR civil code lease contract rent tenant official gazette",
+                    purpose="lao_english_translation_second_pass",
+                    jurisdiction=canonical,
+                    priority=2,
+                ),
+            ])
+
+            return self._dedupe([
+                RetrievalQuery(
                     query=f"{question} ກົດໝາຍວ່າດ້ວຍ ມາດຕາ ດຳລັດ ຄຳສັ່ງ",
                     purpose="lao_statute_second_pass",
                     jurisdiction=canonical,
@@ -75,6 +90,21 @@ class AgenticRetrievalPlanner:
     def _lao_expansions(self, question: str, jurisdiction: str) -> list[RetrievalQuery]:
         return [
             RetrievalQuery(
+                query=f"{question} ກົດໝາຍ ມາດຕາ ສປປ ລາວ ສັນຍາ ໜີ້ ຄ່າເຊົ່າ",
+                purpose="lao_statute_terms",
+                jurisdiction=jurisdiction,
+                priority=1,
+            ),
+            RetrievalQuery(
+                query=f"{question} Lao PDR law article decree regulation official gazette lease rent tenant",
+                purpose="lao_official_gazette_terms",
+                jurisdiction=jurisdiction,
+                priority=1,
+            ),
+        ]
+
+        return [
+            RetrievalQuery(
                 query=f"{question} ກົດໝາຍ ມາດຕາ ສປປ ລາວ",
                 purpose="lao_statute_terms",
                 jurisdiction=jurisdiction,
@@ -89,6 +119,15 @@ class AgenticRetrievalPlanner:
         ]
 
     def _thai_expansions(self, question: str, jurisdiction: str) -> list[RetrievalQuery]:
+        return [
+            RetrievalQuery(
+                query=f"{question} กฎหมาย มาตรา พระราชบัญญัติ สัญญา เช่า ค่าเช่า ผู้เช่า ผู้ให้เช่า",
+                purpose="thai_statute_terms",
+                jurisdiction=jurisdiction,
+                priority=1,
+            )
+        ]
+
         return [
             RetrievalQuery(
                 query=f"{question} กฎหมาย มาตรา พระราชบัญญัติ",

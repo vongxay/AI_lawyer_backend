@@ -25,6 +25,20 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
+_DB_AGENT_NAMES = {
+    "research": "legal_research",
+    "reasoning": "irac_reasoning",
+    "verification": "citation_verification",
+    "document": "document_analysis",
+    "evidence": "evidence_analyzer",
+    "risk": "risk_strategy",
+    "classifier": "query_classifier",
+}
+
+
+def _db_agent_name(agent: str) -> str:
+    return _DB_AGENT_NAMES.get(agent, agent)
+
 
 @dataclass(frozen=True)
 class AuditEvent:
@@ -84,11 +98,12 @@ class AuditService:
         )
 
         if self._supabase:
+            db_agents_used = [_db_agent_name(name) for name in agents_used]
             modern_payload = {
                 "user_id": user_id,
                 "tenant_id": tenant_id,
                 "action": "legal_query",
-                "agents_used": agents_used,
+                "agents_used": db_agents_used,
                 "model_used": agent,
                 "query_hash": event.query_hash,
                 "confidence": confidence,
@@ -100,10 +115,10 @@ class AuditService:
             legacy_payload = {
                 "user_id": user_id,
                 "tenant_id": tenant_id,
-                "agent": agent,
+                "agent": _db_agent_name(agent),
                 "query_hash": event.query_hash,
                 "confidence": confidence,
-                "agents_used": agents_used,
+                "agents_used": db_agents_used,
                 "processing_time_ms": processing_time_ms,
                 "escalated_to_expert": escalated,
                 "ts": event.ts,
@@ -161,6 +176,14 @@ class ExpertQueueService:
             try:
                 await self._supabase.table("expert_reviews").insert(modern_entry).execute()
             except Exception as exc:
+                if "message_id" in str(exc):
+                    log.warning(
+                        "expert_queue.persist.skipped",
+                        reason="database_requires_message_id",
+                        error=str(exc),
+                    )
+                    self._in_memory.append(entry)
+                    return
                 try:
                     await self._supabase.table("expert_reviews").insert(entry).execute()
                 except Exception as legacy_exc:

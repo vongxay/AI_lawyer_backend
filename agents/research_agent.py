@@ -150,20 +150,25 @@ class LegalResearchAgent(BaseAgent):
         all_chunks: list[dict[str, Any]] = []
         trace: list[dict[str, Any]] = []
         total_tokens = 0
+        settings = get_settings()
+        can_embed = settings._looks_configured_secret(settings.openai_api_key)
+        if not can_embed:
+            log.info("research.embedding.disabled_keyword_only", reason="openai_api_key_not_configured")
 
         for item in plan[:5]:
             embedding_vector: list[float] | None = None
             embedding_model: str | None = None
-            try:
-                embedding_result = await self._embedder.embed(
-                    item.query,
-                    multilingual=needs_multilingual_embedding(item.query, item.jurisdiction),
-                )
-                embedding_vector = embedding_result.vector
-                embedding_model = embedding_result.model
-                total_tokens += embedding_result.tokens
-            except ProviderNotConfiguredError as exc:
-                log.warning("research.embedding.unavailable_keyword_only", error=str(exc))
+            if can_embed:
+                try:
+                    embedding_result = await self._embedder.embed(
+                        item.query,
+                        multilingual=needs_multilingual_embedding(item.query, item.jurisdiction),
+                    )
+                    embedding_vector = embedding_result.vector
+                    embedding_model = embedding_result.model
+                    total_tokens += embedding_result.tokens
+                except ProviderNotConfiguredError as exc:
+                    log.warning("research.embedding.unavailable_keyword_only", error=str(exc))
 
             chunks = await self._retriever.retrieve(
                 query=item.query,

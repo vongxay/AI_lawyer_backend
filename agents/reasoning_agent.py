@@ -20,6 +20,7 @@ from typing import Any
 
 from agents.base_agent import BaseAgent
 from core.config import get_settings
+from core.jurisdiction import contains_lao_script, contains_thai_script
 from core.logging import get_logger
 
 log = get_logger(__name__)
@@ -200,7 +201,7 @@ class IracReasoningAgent(BaseAgent):
         # Try direct JSON parse
         try:
             # Strip markdown code fences if present
-            clean = re.sub(r"```(?:json)?\s*|\s*```", "", text.strip())
+            clean = self._extract_json_payload(text)
             data = json.loads(clean)
 
             # Handle insufficient_context flag
@@ -215,7 +216,92 @@ class IracReasoningAgent(BaseAgent):
             log.warning("reasoning.json_parse_failed", raw_length=len(text))
             return self._fallback_response(question, text)
 
+    def _extract_json_payload(self, text: str) -> str:
+        clean = re.sub(r"```(?:json)?\s*|\s*```", "", text.strip())
+        if clean.startswith("{") and clean.endswith("}"):
+            return clean
+
+        start = clean.find("{")
+        end = clean.rfind("}")
+        if start >= 0 and end > start:
+            return clean[start : end + 1]
+        return clean
+
+    def _insufficient_context_texts(self, question: str, reason: str) -> dict[str, Any]:
+        if contains_lao_script(question):
+            return {
+                "analysis": (
+                    "ຂໍ້ມູນກົດໝາຍໃນຖານຂໍ້ມູນຍັງບໍ່ພຽງພໍສຳລັບການວິເຄາະແບບ IRAC. "
+                    f"ເຫດຜົນ: {reason or 'ບໍ່ພົບເອກະສານກົດໝາຍທີ່ກ່ຽວຂ້ອງ.'}"
+                ),
+                "recommendation": (
+                    "ຕອນນີ້ລະບົບບໍ່ຄວນໃຫ້ຄຳຕອບທາງກົດໝາຍແບບຢືນຢັນ "
+                    "ເພາະຍັງບໍ່ມີແຫຼ່ງອ້າງອີງກົດໝາຍລາວທີ່ກວດສອບໄດ້ໃນລະບົບ."
+                ),
+                "action_steps": [
+                    "ເພີ່ມ/ອະນຸມັດເອກະສານກົດໝາຍລາວທີ່ເປັນທາງການເຂົ້າຖານຂໍ້ມູນ",
+                    "ລອງຖາມພ້ອມຊື່ກົດໝາຍ ຫຼື ມາດຕາ ຖ້າມີ",
+                    "ປຶກສາທະນາຍຄວາມທ້ອງຖິ່ນກ່ອນດຳເນີນການຈິງ",
+                ],
+            }
+
+        if contains_thai_script(question):
+            return {
+                "analysis": (
+                    "ข้อมูลกฎหมายในฐานข้อมูลยังไม่เพียงพอสำหรับวิเคราะห์แบบ IRAC "
+                    f"เหตุผล: {reason or 'ไม่พบเอกสารกฎหมายที่เกี่ยวข้อง'}"
+                ),
+                "recommendation": (
+                    "ตอนนี้ระบบไม่ควรให้คำตอบทางกฎหมายแบบยืนยัน เพราะยังไม่มีแหล่งอ้างอิงที่ตรวจสอบได้ในบริบทนี้"
+                ),
+                "action_steps": [
+                    "เพิ่มหรืออนุมัติเอกสารกฎหมายที่เกี่ยวข้องในฐานข้อมูล",
+                    "ลองถามพร้อมชื่อกฎหมายหรือมาตราที่ต้องการตรวจ",
+                    "ปรึกษาทนายความก่อนดำเนินการจริง",
+                ],
+            }
+
+        return {
+            "analysis": (
+                "The legal knowledge base does not contain enough retrieved authority for a grounded IRAC answer. "
+                f"Reason: {reason or 'No relevant legal documents were found.'}"
+            ),
+            "recommendation": (
+                "The system should not provide a definitive legal answer until official, reviewable legal sources are available."
+            ),
+            "action_steps": [
+                "Ingest and approve official legal documents for the relevant jurisdiction.",
+                "Ask again with the law name, article, or section if available.",
+                "Consult a qualified local lawyer before taking real-world action.",
+            ],
+        }
+
     def _insufficient_context_response(self, question: str, reason: str) -> dict[str, Any]:
+        texts = self._insufficient_context_texts(question, reason)
+        return {
+            "irac": {
+                "issue": {"primary": question, "secondary": []},
+                "rule": {"statutes": [], "precedents": []},
+                "application": {
+                    "analysis": texts["analysis"],
+                    "strengths": [],
+                    "weaknesses": [],
+                    "counter_args": [],
+                    "rebuttals": [],
+                },
+                "conclusion": {
+                    "recommendation": texts["recommendation"],
+                    "action_steps": texts["action_steps"],
+                    "risk_level": "MEDIUM",
+                    "win_probability": 0.0,
+                    "settlement_note": None,
+                },
+            },
+            "confidence": 0.3,
+            "_confidence": 0.3,
+            "citations": [],
+        }
+
         return {
             "irac": {
                 "issue": {"primary": question, "secondary": []},
