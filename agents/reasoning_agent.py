@@ -38,6 +38,8 @@ For Lao PDR legal questions, prioritize legislation from the Lao PDR Official Ga
    {"insufficient_context": true, "reason": "brief explanation"}
 4. Structure ALL responses using the IRAC JSON format below.
 5. Be concise but complete — courts require precision.
+6. Return compact JSON only. Do not add markdown fences, commentary, or prose outside JSON.
+7. Keep output small: max 3 items per array, one sentence per item, statute text <= 240 characters, application.analysis <= 800 characters, reasoning_notes <= 120 characters.
 
 ═══ OUTPUT FORMAT (strict JSON) ═══
 {
@@ -131,6 +133,13 @@ class IracReasoningAgent(BaseAgent):
             memory=memory,
         )
 
+        missing_case_facts_reason = self._missing_case_facts_reason(question)
+        if missing_case_facts_reason:
+            log.info("reasoning.skipped_llm_missing_case_facts", reason=missing_case_facts_reason)
+            parsed = self._insufficient_context_response(question, missing_case_facts_reason)
+            parsed["_tokens"] = 0
+            return parsed
+
         user_message = _CONTEXT_TEMPLATE.format(
             retrieved_documents=context["docs"],
             case_memory_summary=context["memory"],
@@ -167,14 +176,15 @@ class IracReasoningAgent(BaseAgent):
         doc_parts: list[str] = []
 
         if research and research.get("retrieved_documents"):
-            for chunk in research["retrieved_documents"][:10]:
+            settings = get_settings()
+            for chunk in research["retrieved_documents"][:max(1, settings.reasoning_context_top_k)]:
                 section = f" {chunk.get('section')}" if chunk.get("section") else ""
                 score = f" score={chunk.get('final_score'):.4f}" if isinstance(chunk.get("final_score"), (int, float)) else ""
                 source = f" source={chunk.get('source_url')}" if chunk.get("source_url") else ""
                 doc_parts.append(
                     f"[{chunk.get('type', 'doc').upper()}] "
                     f"{chunk.get('title', '')}{section}{score}{source} "
-                    f"— {chunk.get('content', '')[:500]}"
+                    f"— {chunk.get('content', '')[:max(120, settings.reasoning_context_chunk_chars)]}"
                 )
 
         if document and document.get("clauses"):
@@ -195,6 +205,36 @@ class IracReasoningAgent(BaseAgent):
             "docs": "\n\n".join(doc_parts) or "No retrieved documents available.",
             "memory": "\n".join(memory_parts) or "No prior case memory.",
         }
+
+    def _missing_case_facts_reason(self, question: str) -> str | None:
+        settings = get_settings()
+        clean = re.sub(r"\s+", " ", question).strip()
+        if len(clean) >= settings.case_analysis_min_fact_chars:
+            return None
+
+        lowered = clean.casefold()
+        analysis_markers = ("วิเคราะห์", "ວິເຄາະ", "analyze", "analysis")
+        case_markers = ("คดี", "ຄະດີ", "case")
+        if not (
+            any(marker in lowered for marker in analysis_markers)
+            and any(marker in lowered for marker in case_markers)
+        ):
+            return None
+
+        if contains_lao_script(clean):
+            return (
+                "ຄຳຖາມເປັນການຂໍວິເຄາະຄະດີ ແຕ່ຍັງບໍ່ມີຂໍ້ເທັດຈິງພຽງພໍ "
+                "ເຊັ່ນ ຄູ່ກໍລະນີ, ຂໍ້ພິພາດ, ເອກະສານສິດ, ແລະຄຳຖາມກົດໝາຍສະເພາະ."
+            )
+        if contains_thai_script(clean):
+            return (
+                "คำถามเป็นการขอวิเคราะห์คดี แต่ยังไม่มีข้อเท็จจริงเพียงพอ เช่น คู่กรณี "
+                "ข้อพิพาท เอกสารสิทธิ และประเด็นกฎหมายเฉพาะ."
+            )
+        return (
+            "The query asks for case analysis but does not provide enough facts, parties, dispute details, "
+            "documents, or specific legal issues."
+        )
 
     def _parse_irac_response(self, text: str, question: str) -> dict[str, Any]:
         """Parse LLM response into IRAC dict, with graceful fallback."""

@@ -69,7 +69,7 @@ class LegalResearchAgent(BaseAgent):
             question=question,
             jurisdiction=canonical_jurisdiction_value,
             tenant_id=tenant_id,
-            top_k=settings.rag_top_k * 3,
+            top_k=max(settings.rag_top_k, settings.rag_top_k * 2),
         )
 
         # Step 3: Graph expansion from top case hits
@@ -155,7 +155,7 @@ class LegalResearchAgent(BaseAgent):
         if not can_embed:
             log.info("research.embedding.disabled_keyword_only", reason="openai_api_key_not_configured")
 
-        for item in plan[:5]:
+        for item in plan[:max(1, settings.rag_plan_max_queries)]:
             embedding_vector: list[float] | None = None
             embedding_model: str | None = None
             if can_embed:

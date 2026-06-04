@@ -12,9 +12,12 @@ Routes:
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 import mimetypes
+import re
+import uuid
 from typing import Annotated, Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -99,28 +102,47 @@ async def upload_legal_documents(
                 f"'{upload.filename}' ({size_mb:.1f}MB) exceeds limit of {settings.max_upload_size_mb}MB"
             )
 
-        result = await service.ingest(
-            IngestionInput(
-                filename=upload.filename or "unnamed",
+        try:
+            result = await service.ingest(
+                IngestionInput(
+                    filename=upload.filename or "unnamed",
+                    content_type=upload.content_type or "application/octet-stream",
+                    content=content,
+                    document_type=document_type,
+                    jurisdiction=jurisdiction,
+                    title=title if len(files) == 1 else None,
+                    year=year,
+                    tags=parsed_tags,
+                    source_url=source_url,
+                    review_status="pending_review",
+                    tenant_id=user.tenant_id or None,
+                    user_id=user.sub,
+                )
+            )
+            result_payload = result.__dict__
+        except UnsupportedFileTypeError as exc:
+            result_payload = _failed_upload_result(
+                exc=exc,
+                file_name=upload.filename or "unnamed",
                 content_type=upload.content_type or "application/octet-stream",
-                content=content,
                 document_type=document_type,
                 jurisdiction=jurisdiction,
                 title=title if len(files) == 1 else None,
-                year=year,
-                tags=parsed_tags,
-                source_url=source_url,
-                review_status="pending_review",
-                tenant_id=user.tenant_id or None,
-                user_id=user.sub,
             )
-        )
+            log.warning(
+                "admin.ingest.upload_file_failed",
+                file_name=upload.filename,
+                content_type=upload.content_type,
+                error=exc.message,
+                details=exc.details,
+            )
+
         await _record_ingestion_job(
             supabase=supabase,
             user=user,
-            result=result.__dict__,
+            result=result_payload,
             source_type="file",
-            file_name=upload.filename or result.title,
+            file_name=upload.filename or result_payload["title"],
             source_url=source_url,
             config={
                 "document_type": document_type,
@@ -132,11 +154,21 @@ async def upload_legal_documents(
                 "size_bytes": len(content),
             },
         )
-        results.append(result.__dict__)
+        results.append(result_payload)
+
+    failed_count = len([item for item in results if item.get("status") == "failed"])
+    processed_count = len(results) - failed_count
+    response_status = "indexed"
+    if failed_count and processed_count:
+        response_status = "completed_with_errors"
+    elif failed_count:
+        response_status = "failed"
 
     return {
-        "status": "indexed",
+        "status": response_status,
         "count": len(results),
+        "processed_count": processed_count,
+        "failed_count": failed_count,
         "items": results,
     }
 
@@ -153,58 +185,214 @@ async def ingest_legal_document_url(
         raise UnsupportedFileTypeError("Only http/https URLs are supported.")
 
     timeout = httpx.Timeout(20.0, connect=5.0)
+    supabase = await get_supabase()
+    service = LegalDocumentIngestionService(supabase=supabase)
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         response = await client.get(url)
         response.raise_for_status()
         content = response.content
 
-    size_mb = len(content) / (1024 * 1024)
-    if size_mb > settings.max_upload_size_mb:
-        raise FileTooLargeError(f"Remote document ({size_mb:.1f}MB) exceeds limit of {settings.max_upload_size_mb}MB")
+        size_mb = len(content) / (1024 * 1024)
+        if size_mb > settings.max_upload_size_mb:
+            raise FileTooLargeError(
+                f"Remote document ({size_mb:.1f}MB) exceeds limit of {settings.max_upload_size_mb}MB"
+            )
 
-    content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
-    if not content_type or content_type == "application/octet-stream":
-        guessed, _ = mimetypes.guess_type(parsed.path)
-        content_type = guessed or "application/pdf"
+        content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
+        if not content_type or content_type == "application/octet-stream":
+            guessed, _ = mimetypes.guess_type(parsed.path)
+            content_type = guessed or "application/pdf"
 
-    filename = parsed.path.rsplit("/", 1)[-1] or "remote-legal-document"
-    supabase = await get_supabase()
-    service = LegalDocumentIngestionService(supabase=supabase)
-    result = await service.ingest(
-        IngestionInput(
-            filename=filename,
-            content_type=content_type,
-            content=content,
+        if content_type == "text/html":
+            html = content.decode(response.encoding or "utf-8", errors="replace")
+            document_links = _extract_document_links(html, str(response.url), limit=settings.url_ingest_max_documents)
+            if not document_links:
+                raise UnsupportedFileTypeError(
+                    "The URL returned an HTML page, but no downloadable legal document links were found.",
+                    details={
+                        "content_type": content_type,
+                        "url": url,
+                        "hint": "Use a direct PDF/DOCX URL, or a page that contains document download links.",
+                    },
+                )
+
+            results: list[dict[str, Any]] = []
+            for link in document_links:
+                try:
+                    result_payload = await _ingest_remote_document(
+                        client=client,
+                        service=service,
+                        supabase=supabase,
+                        user=user,
+                        url=link["url"],
+                        source_page_url=url,
+                        document_type=payload.document_type,
+                        jurisdiction=payload.jurisdiction,
+                        title=payload.title if len(document_links) == 1 else None,
+                        year=payload.year,
+                        tags=payload.tags,
+                        review_status=payload.review_status,
+                        settings=settings,
+                    )
+                except Exception as exc:
+                    result_payload = _failed_remote_document_result(
+                        exc=exc,
+                        url=link["url"],
+                        document_type=payload.document_type,
+                        jurisdiction=payload.jurisdiction,
+                        title=link.get("title"),
+                    )
+                    log.warning("admin.ingest.url_link_failed", url=link["url"], error=str(exc))
+                results.append(result_payload)
+
+            return {
+                **_multi_ingestion_response(results),
+                "source": "html_index",
+                "source_url": url,
+                "discovered_count": len(document_links),
+                "item": results[0] if results else None,
+            }
+
+        result_payload = await _ingest_remote_document(
+            client=client,
+            service=service,
+            supabase=supabase,
+            user=user,
+            url=url,
+            source_page_url=None,
             document_type=payload.document_type,
             jurisdiction=payload.jurisdiction,
             title=payload.title,
             year=payload.year,
             tags=payload.tags,
-            source_url=url,
             review_status=payload.review_status,
-            tenant_id=user.tenant_id or None,
-            user_id=user.sub,
+            settings=settings,
+            prefetched_content=content,
+            prefetched_content_type=content_type,
+            prefetched_final_url=str(response.url),
         )
-    )
+
+        return {
+            **_multi_ingestion_response([result_payload]),
+            "source": "direct_url",
+            "item": result_payload,
+        }
+
+
+async def _ingest_remote_document(
+    *,
+    client: httpx.AsyncClient,
+    service: LegalDocumentIngestionService,
+    supabase: Any | None,
+    user: CurrentUser,
+    url: str,
+    source_page_url: str | None,
+    document_type: str,
+    jurisdiction: str,
+    title: str | None,
+    year: int | None,
+    tags: list[str],
+    review_status: str,
+    settings: Any,
+    prefetched_content: bytes | None = None,
+    prefetched_content_type: str | None = None,
+    prefetched_final_url: str | None = None,
+) -> dict[str, Any]:
+    if prefetched_content is None:
+        response = await client.get(url)
+        response.raise_for_status()
+        content = response.content
+        final_url = str(response.url)
+        content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
+    else:
+        content = prefetched_content
+        final_url = prefetched_final_url or url
+        content_type = prefetched_content_type or "application/octet-stream"
+
+    size_mb = len(content) / (1024 * 1024)
+    if size_mb > settings.max_upload_size_mb:
+        raise FileTooLargeError(f"Remote document ({size_mb:.1f}MB) exceeds limit of {settings.max_upload_size_mb}MB")
+
+    parsed_final = urlparse(final_url)
+    if not content_type or content_type == "application/octet-stream":
+        guessed, _ = mimetypes.guess_type(parsed_final.path)
+        content_type = guessed or "application/pdf"
+
+    filename = _filename_from_url(final_url)
+    try:
+        result = await service.ingest(
+            IngestionInput(
+                filename=filename,
+                content_type=content_type,
+                content=content,
+                document_type=document_type,
+                jurisdiction=jurisdiction,
+                title=title,
+                year=year,
+                tags=tags,
+                source_url=final_url,
+                review_status=review_status,
+                tenant_id=user.tenant_id or None,
+                user_id=user.sub,
+            )
+        )
+        result_payload = result.__dict__
+    except UnsupportedFileTypeError as exc:
+        result_payload = _failed_upload_result(
+            exc=exc,
+            file_name=filename,
+            content_type=content_type,
+            document_type=document_type,
+            jurisdiction=jurisdiction,
+            title=title,
+        )
+        log.warning(
+            "admin.ingest.url_document_failed",
+            url=url,
+            final_url=final_url,
+            content_type=content_type,
+            error=exc.message,
+            details=exc.details,
+        )
+
     await _record_ingestion_job(
         supabase=supabase,
         user=user,
-        result=result.__dict__,
+        result=result_payload,
         source_type="url",
-        file_name=filename,
-        source_url=url,
+        file_name=filename or result_payload["title"],
+        source_url=final_url,
         config={
-            "document_type": payload.document_type,
-            "jurisdiction": payload.jurisdiction,
-            "title": payload.title,
-            "year": payload.year,
-            "tags": payload.tags,
+            "document_type": document_type,
+            "jurisdiction": jurisdiction,
+            "title": title,
+            "year": year,
+            "tags": tags,
             "content_type": content_type,
             "size_bytes": len(content),
+            "source_page_url": source_page_url,
+            "requested_url": url,
+            "final_url": final_url,
         },
     )
+    return result_payload
 
-    return {"status": result.status, "item": result.__dict__}
+
+def _multi_ingestion_response(results: list[dict[str, Any]]) -> dict[str, Any]:
+    failed_count = len([item for item in results if item.get("status") == "failed"])
+    processed_count = len(results) - failed_count
+    response_status = "indexed"
+    if failed_count and processed_count:
+        response_status = "completed_with_errors"
+    elif failed_count:
+        response_status = "failed"
+    return {
+        "status": response_status,
+        "count": len(results),
+        "processed_count": processed_count,
+        "failed_count": failed_count,
+        "items": results,
+    }
 
 
 @router.get("/ingestion", summary="List recent knowledge ingestion jobs")
@@ -560,6 +748,15 @@ async def _record_ingestion_job(
         return
 
     review_status = str(result.get("review_status") or "pending_review")
+    result_status = str(result.get("status") or "")
+    result_error = result.get("error")
+    errors = []
+    if result_error:
+        errors.append({
+            "message": str(result_error),
+            "details": result.get("details") or {},
+        })
+    failed = result_status == "failed" or bool(errors)
     now = datetime.now(timezone.utc).isoformat()
     payload = {
         "id": result.get("job_id"),
@@ -568,12 +765,12 @@ async def _record_ingestion_job(
         "source_type": source_type,
         "source_url": source_url,
         "file_name": file_name,
-        "status": "pending_review" if review_status == "pending_review" else "completed",
-        "progress": 90 if review_status == "pending_review" else 100,
+        "status": "failed" if failed else ("pending_review" if review_status == "pending_review" else "completed"),
+        "progress": 100 if failed else (90 if review_status == "pending_review" else 100),
         "total_items": 1,
-        "processed_items": 1,
-        "error_count": 0,
-        "errors": [],
+        "processed_items": 0 if failed else 1,
+        "error_count": len(errors),
+        "errors": errors,
         "config": config,
         "result": result,
         "created_by": user.sub,
@@ -585,6 +782,159 @@ async def _record_ingestion_job(
         await supabase.table("ingestion_jobs").insert(payload).execute()
     except Exception as exc:
         log.warning("admin.record_ingestion_job.failed", error=str(exc))
+
+
+class _DocumentLinkParser(HTMLParser):
+    def __init__(self, base_url: str) -> None:
+        super().__init__(convert_charrefs=True)
+        self._base_url = base_url
+        self._active_href: str | None = None
+        self._active_text: list[str] = []
+        self.links: list[dict[str, str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "a":
+            return
+        href = dict(attrs).get("href")
+        if not href:
+            return
+        self._active_href = urljoin(self._base_url, href)
+        self._active_text = []
+
+    def handle_data(self, data: str) -> None:
+        if self._active_href:
+            self._active_text.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() != "a" or not self._active_href:
+            return
+        self.links.append({
+            "url": self._active_href,
+            "title": re.sub(r"\s+", " ", " ".join(self._active_text)).strip(),
+        })
+        self._active_href = None
+        self._active_text = []
+
+
+def _extract_document_links(html: str, base_url: str, *, limit: int) -> list[dict[str, str]]:
+    parser = _DocumentLinkParser(base_url)
+    parser.feed(html)
+
+    links: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for link in parser.links:
+        url = link["url"]
+        if not _looks_like_document_url(url, link.get("title", "")):
+            continue
+        key = url.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        links.append(link)
+        if len(links) >= max(1, limit):
+            break
+    return links
+
+
+def _looks_like_document_url(url: str, text: str = "") -> bool:
+    parsed = urlparse(url)
+    path = unquote(parsed.path).casefold()
+    haystack = f"{path} {text.casefold()}"
+    if "/documents.search" in path:
+        return False
+    if "/document/view/" in path or "/storage/document/" in path:
+        return True
+    return any(haystack.endswith(ext) or f".{ext}" in haystack for ext in ("pdf", "docx", "doc", "txt", "md"))
+
+
+def _filename_from_url(url: str, fallback: str = "remote-legal-document") -> str:
+    filename = unquote(urlparse(url).path.rsplit("/", 1)[-1]).strip()
+    return filename or fallback
+
+
+def _failed_remote_document_result(
+    *,
+    exc: Exception,
+    url: str,
+    document_type: str,
+    jurisdiction: str,
+    title: str | None,
+) -> dict[str, Any]:
+    file_name = _filename_from_url(url)
+    message = str(exc) or exc.__class__.__name__
+    return {
+        "job_id": str(uuid.uuid4()),
+        "document_id": None,
+        "source_table": _source_table_for_document_type(document_type),
+        "title": title or _title_from_filename(file_name),
+        "status": "failed",
+        "chunks": 0,
+        "chunks_indexed": 0,
+        "chunks_embedded": 0,
+        "text_length": 0,
+        "embedding_model": None,
+        "review_status": "failed",
+        "document_type": document_type,
+        "jurisdiction": jurisdiction,
+        "warnings": [f"Could not ingest remote document from {url}."],
+        "error": message,
+        "details": {
+            "url": url,
+            "exception_type": exc.__class__.__name__,
+        },
+    }
+
+
+def _failed_upload_result(
+    *,
+    exc: UnsupportedFileTypeError,
+    file_name: str,
+    content_type: str,
+    document_type: str,
+    jurisdiction: str,
+    title: str | None,
+) -> dict[str, Any]:
+    return {
+        "job_id": str(uuid.uuid4()),
+        "document_id": None,
+        "source_table": _source_table_for_document_type(document_type),
+        "title": title or _title_from_filename(file_name),
+        "status": "failed",
+        "chunks": 0,
+        "chunks_indexed": 0,
+        "chunks_embedded": 0,
+        "text_length": 0,
+        "embedding_model": None,
+        "review_status": "failed",
+        "document_type": document_type,
+        "jurisdiction": jurisdiction,
+        "warnings": [_upload_failure_hint(exc, content_type=content_type)],
+        "error": exc.message,
+        "details": exc.details,
+    }
+
+
+def _upload_failure_hint(exc: UnsupportedFileTypeError, *, content_type: str) -> str:
+    if content_type == "application/pdf" and "PDF text extraction failed" in exc.message:
+        return (
+            "This PDF has no readable text layer. Install local Tesseract OCR with Thai/Lao language data, "
+            "or upload a text-searchable PDF."
+        )
+    return exc.message
+
+
+def _source_table_for_document_type(document_type: str) -> str:
+    normalized = document_type.strip().lower()
+    if normalized in {"case", "case_law", "judgment"}:
+        return "cases"
+    if normalized in {"form", "template"}:
+        return "legal_forms"
+    return "laws"
+
+
+def _title_from_filename(filename: str) -> str:
+    stem = filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    return re.sub(r"\.[^.]+$", "", stem).replace("_", " ").replace("-", " ").strip() or filename
 
 
 async def _synthesise_ingestion_jobs(supabase: Any, *, limit: int) -> list[dict[str, Any]]:

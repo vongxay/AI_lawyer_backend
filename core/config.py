@@ -115,10 +115,22 @@ class Settings(BaseSettings):
     rag_chunk_max_chars: int = 2600
     rag_chunk_overlap_chars: int = 350
     rag_embedding_batch_size: int = 48
+    rag_plan_max_queries: int = 3
+    reasoning_context_top_k: int = 6
+    reasoning_context_chunk_chars: int = 360
+    case_analysis_min_fact_chars: int = 120
 
     # ── Storage ────────────────────────────────────────────────────────────────
     max_upload_size_mb: int = 50
     max_request_body_mb: int = 55
+    url_ingest_max_documents: int = 10
+    pdf_ocr_enabled: bool = True
+    pdf_detect_garbled_text: bool = True
+    pdf_ocr_max_pages: int = 12
+    pdf_ocr_dpi: int = 200
+    pdf_ocr_languages: str = "eng+tha+lao"
+    tesseract_cmd: str | None = None
+    tessdata_prefix: str | None = None
     allowed_upload_types: str = (
         "application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,"
         "application/msword,text/plain,text/markdown,image/jpeg,image/png,image/webp,"

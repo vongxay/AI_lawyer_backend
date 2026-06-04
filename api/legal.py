@@ -45,6 +45,7 @@ async def legal_query(
         jurisdiction=payload.jurisdiction,
         user_id=user.sub,
         tenant_id=user.tenant_id,
+        session_id=payload.session_id,
     )
     return result.response
 
@@ -59,6 +60,7 @@ async def legal_query_with_files(
     user: AuthUser,
     question: str = Form(..., min_length=3, max_length=5000),
     case_id: str | None = Form(default=None),
+    session_id: str | None = Form(default=None),
     jurisdiction: str | None = Form(default=None),
     files: list[UploadFile] = File(default_factory=list),
 ) -> dict:
@@ -92,6 +94,7 @@ async def legal_query_with_files(
         evidence_files=evidence_files or None,
         user_id=user.sub,
         tenant_id=user.tenant_id,
+        session_id=session_id,
     )
     return result.response
 
@@ -126,6 +129,7 @@ async def legal_query_stream(
                 jurisdiction=payload.jurisdiction,
                 user_id=user.sub,
                 tenant_id=user.tenant_id,
+                session_id=payload.session_id,
             )
             response = result.response
 

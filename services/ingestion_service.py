@@ -6,10 +6,12 @@ Admin legal document ingestion pipeline.
 from __future__ import annotations
 
 import io
+import os
 import re
 import uuid
 import zipfile
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
@@ -445,6 +447,7 @@ def _split_with_overlap(text: str, *, max_chars: int, overlap: int) -> list[str]
 
 def _extract_pdf(content: bytes) -> str:
     errors: list[str] = []
+    settings = get_settings()
 
     try:
         import fitz
@@ -452,8 +455,12 @@ def _extract_pdf(content: bytes) -> str:
         with fitz.open(stream=content, filetype="pdf") as doc:
             text = "\n\n".join(page.get_text("text") for page in doc)
         if text.strip():
-            return text
-        errors.append("PyMuPDF extracted no text; the PDF may be scanned or image-only.")
+            if settings.pdf_detect_garbled_text and _looks_like_garbled_pdf_text(text):
+                errors.append("PyMuPDF extracted garbled text from a PDF text layer; trying another extractor/OCR.")
+            else:
+                return text
+        else:
+            errors.append("PyMuPDF extracted no text; the PDF may be scanned or image-only.")
     except ModuleNotFoundError:
         errors.append("PyMuPDF is not installed. Install it with: py -m pip install PyMuPDF")
     except Exception as exc:
@@ -465,18 +472,184 @@ def _extract_pdf(content: bytes) -> str:
         reader = PdfReader(io.BytesIO(content))
         text = "\n\n".join(page.extract_text() or "" for page in reader.pages)
         if text.strip():
-            return text
-        errors.append("pypdf extracted no text; the PDF may be scanned or image-only.")
+            if settings.pdf_detect_garbled_text and _looks_like_garbled_pdf_text(text):
+                errors.append("pypdf extracted garbled text from a PDF text layer; trying OCR.")
+            else:
+                return text
+        else:
+            errors.append("pypdf extracted no text; the PDF may be scanned or image-only.")
     except ModuleNotFoundError:
         errors.append("pypdf is not installed. Install it with: py -m pip install pypdf")
     except Exception as exc:
         errors.append(f"pypdf failed: {exc}")
 
+    if settings.pdf_ocr_enabled:
+        text = _extract_pdf_with_ocr(content, errors=errors)
+        if text.strip():
+            if settings.pdf_detect_garbled_text and _looks_like_garbled_pdf_text(text):
+                errors.append("OCR fallback extracted text that still looks garbled.")
+            else:
+                return text
+    else:
+        errors.append("Local OCR fallback is disabled. Set PDF_OCR_ENABLED=true to enable scanned PDF OCR.")
+
     details = {"extractors": errors}
     raise UnsupportedFileTypeError(
-        "PDF text extraction failed. Install PyMuPDF or pypdf, or upload a text-searchable PDF.",
+        "PDF text extraction failed. The PDF text layer appears scanned, missing, or garbled. "
+        "Install Tesseract OCR with Lao/Thai language data, or upload a Unicode text-searchable PDF.",
         details=details,
     )
+
+
+def _looks_like_garbled_pdf_text(text: str) -> bool:
+    sample = re.sub(r"\s+", " ", text).strip()[:6000]
+    chars = [ch for ch in sample if not ch.isspace()]
+    if len(chars) < 80:
+        return False
+
+    replacement_ratio = sample.count("\ufffd") / len(chars)
+    if replacement_ratio > 0.01:
+        return True
+
+    lao_thai = sum(1 for ch in chars if ("\u0e00" <= ch <= "\u0eff"))
+    lao_thai_ratio = lao_thai / len(chars)
+    if lao_thai_ratio > 0.08:
+        return False
+
+    suspicious = 0
+    weird_symbols = set("®©ªº¯½¾¿¡§¦£¥µ±²³´ð−†™‰„")
+    for ch in chars:
+        code = ord(ch)
+        if ch in weird_symbols or 0x00C0 <= code <= 0x00FF or code in {0x201A, 0x201E, 0x2212}:
+            suspicious += 1
+
+    suspicious_ratio = suspicious / len(chars)
+    if suspicious_ratio > 0.45:
+        return True
+
+    hyphen_noise = len(re.findall(r"(?:[A-Za-zÀ-ÿ®©ªº¯½¾¿¡§¦£¥µ±²³´ð−†™‰„]{1,6}-){2,}", sample))
+    extended_tokens = len(re.findall(r"[A-Za-zÀ-ÿ®©ªº¯½¾¿¡§¦£¥µ±²³´ð−†™‰„]*[À-ÿ®©ªº¯½¾¿¡§¦£¥µ±²³´ð−†™‰„][A-Za-zÀ-ÿ®©ªº¯½¾¿¡§¦£¥µ±²³´ð−†™‰„]*", sample))
+
+    if suspicious_ratio > 0.18 and hyphen_noise >= 2:
+        return True
+    if suspicious_ratio > 0.28 and extended_tokens >= 20:
+        return True
+    return False
+
+
+def _extract_pdf_with_ocr(content: bytes, *, errors: list[str]) -> str:
+    try:
+        import fitz
+    except ModuleNotFoundError:
+        errors.append("OCR fallback needs PyMuPDF. Install it with: py -m pip install PyMuPDF")
+        return ""
+
+    try:
+        from PIL import Image
+    except ModuleNotFoundError:
+        errors.append("OCR fallback needs Pillow. Install it with: py -m pip install pillow")
+        return ""
+
+    try:
+        import pytesseract
+    except ModuleNotFoundError:
+        errors.append("OCR fallback needs pytesseract. Install it with: py -m pip install pytesseract")
+        return ""
+
+    settings = get_settings()
+    _configure_tesseract(pytesseract, errors=errors)
+
+    text_parts: list[str] = []
+
+    try:
+        with fitz.open(stream=content, filetype="pdf") as doc:
+            page_count = min(len(doc), max(1, settings.pdf_ocr_max_pages))
+            scale = max(72, settings.pdf_ocr_dpi) / 72
+            matrix = fitz.Matrix(scale, scale)
+
+            for page_index in range(page_count):
+                page = doc.load_page(page_index)
+                pixmap = page.get_pixmap(matrix=matrix, alpha=False)
+                image = Image.open(io.BytesIO(pixmap.tobytes("png")))
+                text = _ocr_image_text(
+                    image,
+                    pytesseract,
+                    page_number=page_index + 1,
+                    errors=errors,
+                )
+                if text.strip():
+                    text_parts.append(text.strip())
+
+            if len(doc) > page_count:
+                errors.append(
+                    f"OCR scanned only the first {page_count} of {len(doc)} pages. "
+                    "Increase PDF_OCR_MAX_PAGES for longer scanned PDFs."
+                )
+    except Exception as exc:
+        errors.append(f"OCR fallback failed: {exc}")
+        return ""
+
+    text = "\n\n".join(text_parts)
+    if not text.strip():
+        errors.append("OCR fallback extracted no text; the scan may be low quality or Tesseract language data may be missing.")
+    return text
+
+
+def _configure_tesseract(pytesseract: Any, *, errors: list[str]) -> None:
+    settings = get_settings()
+    tesseract_cmd = settings.tesseract_cmd or _default_tesseract_cmd()
+    if tesseract_cmd:
+        pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+    else:
+        errors.append(
+            "Tesseract executable was not found. Set TESSERACT_CMD or install Tesseract OCR."
+        )
+
+    tessdata_prefix = settings.tessdata_prefix or _default_tessdata_prefix()
+    if tessdata_prefix:
+        os.environ["TESSDATA_PREFIX"] = tessdata_prefix
+
+
+def _default_tesseract_cmd() -> str | None:
+    candidates = [
+        Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
+        Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
+def _default_tessdata_prefix() -> str | None:
+    project_tessdata = Path(__file__).resolve().parents[1] / "tessdata"
+    candidates = [
+        project_tessdata,
+        Path(r"C:\Program Files\Tesseract-OCR\tessdata"),
+        Path(r"C:\Program Files (x86)\Tesseract-OCR\tessdata"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
+def _ocr_image_text(image: Any, pytesseract: Any, *, page_number: int, errors: list[str]) -> str:
+    language = (get_settings().pdf_ocr_languages or "eng").strip() or "eng"
+    try:
+        return pytesseract.image_to_string(image, lang=language)
+    except Exception as exc:
+        if language != "eng":
+            errors.append(
+                f"Tesseract OCR failed on page {page_number} with languages '{language}'; retrying with 'eng': {exc}"
+            )
+            try:
+                return pytesseract.image_to_string(image, lang="eng")
+            except Exception as fallback_exc:
+                errors.append(f"Tesseract OCR failed on page {page_number} with 'eng': {fallback_exc}")
+                return ""
+        errors.append(f"Tesseract OCR failed on page {page_number}: {exc}")
+        return ""
 
 
 def _extract_docx(content: bytes) -> str:

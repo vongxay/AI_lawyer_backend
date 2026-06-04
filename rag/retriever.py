@@ -191,6 +191,30 @@ class Retriever:
             if len(cleaned) >= 2:
                 terms.append(cleaned)
 
+        land_markers = (
+            "ທີ່ດິນ",
+            "ກຳມະສິດ",
+            "ສິດນຳໃຊ້",
+            "ອະສັງຫາ",
+            "ที่ดิน",
+            "กรรมสิทธิ์",
+            "land",
+            "property",
+            "ownership",
+            "usufruct",
+        )
+        if any(marker in lowered for marker in land_markers):
+            terms.extend([
+                "ທີ່ດິນ",
+                "ກຳມະສິດ",
+                "ສິດນຳໃຊ້",
+                "ກົດໝາຍທີ່ດິນ",
+                "land",
+                "property",
+                "ownership",
+                "usufruct",
+            ])
+
         synonym_checks = [
             ("ເຊົ່າ", ["ເຊົ່າ", "ຄ່າເຊົ່າ", "ຜູ້ເຊົ່າ", "lease", "rent", "tenant", "เช่า", "ค่าเช่า"]),
             ("เช่า", ["เช่า", "ค่าเช่า", "ผู้เช่า", "ผู้ให้เช่า", "lease", "rent", "tenant"]),

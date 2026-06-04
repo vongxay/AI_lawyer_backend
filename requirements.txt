@@ -50,6 +50,7 @@ structlog>=24.2.0
 PyMuPDF>=1.23.0                  # PDF parsing
 pypdf>=4.0.0                     # PDF parsing fallback
 pillow>=10.0.0                   # Image processing
+pytesseract>=0.3.13              # Optional scanned PDF OCR wrapper; requires Tesseract OCR executable
 
 # Testing (Development)
 pytest>=7.4.0

@@ -109,6 +109,10 @@ class LegalQueryRequest(BaseModel):
         validation_alias=AliasChoices("question", "query"),
     )
     case_id: str | None = None
+    session_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("session_id", "sessionId"),
+    )
     jurisdiction: str | None = None
     model_id: str | None = None
     include_irac: bool = True
