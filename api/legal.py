@@ -24,13 +24,12 @@ from core.config import get_settings
 from core.database import get_supabase
 from core.exceptions import FileTooLargeError, UnsupportedFileTypeError
 from core.logging import get_logger
-from core.security import CurrentUser, get_optional_user, require_roles
+from core.security import CurrentUser, require_roles
 from services.llm_service import LlmService, Message
 
 router = APIRouter(prefix="/api/v1/legal", tags=["legal"])
 log = get_logger(__name__)
 
-OptionalUser = Annotated[CurrentUser | None, Depends(get_optional_user)]
 AuthUser = Annotated[CurrentUser, Depends(require_roles("client", "lawyer", "admin"))]
 
 
@@ -38,14 +37,14 @@ AuthUser = Annotated[CurrentUser, Depends(require_roles("client", "lawyer", "adm
 async def legal_query(
     payload: LegalQueryRequest,
     workflow: WorkflowDep,
-    user: OptionalUser,
+    user: AuthUser,
 ) -> dict:
     result = await workflow.orchestrate(
         question=payload.question,
         case_id=payload.case_id,
         jurisdiction=payload.jurisdiction,
-        user_id=user.sub if user else None,
-        tenant_id=user.tenant_id if user else None,
+        user_id=user.sub,
+        tenant_id=user.tenant_id,
     )
     return result.response
 
@@ -57,7 +56,7 @@ async def legal_query(
 )
 async def legal_query_with_files(
     workflow: WorkflowDep,
-    user: OptionalUser,
+    user: AuthUser,
     question: str = Form(..., min_length=3, max_length=5000),
     case_id: str | None = Form(default=None),
     jurisdiction: str | None = Form(default=None),
@@ -91,8 +90,8 @@ async def legal_query_with_files(
         case_id=case_id,
         jurisdiction=jurisdiction,
         evidence_files=evidence_files or None,
-        user_id=user.sub if user else None,
-        tenant_id=user.tenant_id if user else None,
+        user_id=user.sub,
+        tenant_id=user.tenant_id,
     )
     return result.response
 
@@ -106,7 +105,7 @@ async def legal_query_stream(
     request: Request,
     payload: LegalQueryRequest,
     workflow: WorkflowDep,
-    user: OptionalUser,
+    user: AuthUser,
 ) -> StreamingResponse:
     async def event_stream() -> AsyncIterator[str]:
         try:
@@ -125,8 +124,8 @@ async def legal_query_stream(
                 question=payload.question,
                 case_id=payload.case_id,
                 jurisdiction=payload.jurisdiction,
-                user_id=user.sub if user else None,
-                tenant_id=user.tenant_id if user else None,
+                user_id=user.sub,
+                tenant_id=user.tenant_id,
             )
             response = result.response
 
@@ -165,7 +164,7 @@ async def legal_query_stream(
 @router.post("/draft", summary="Draft a legal document")
 async def draft_document(
     payload: DraftRequest,
-    user: OptionalUser,
+    user: AuthUser,
 ) -> dict:
     settings = get_settings()
     llm = LlmService()
@@ -207,7 +206,9 @@ async def draft_document(
 async def verify_citations(
     payload: VerifyCitationsRequest,
     workflow: WorkflowDep,
+    user: AuthUser,
 ) -> dict:
+    _ = user
     result = await workflow._verification_agent.run(
         citations=[c.model_dump() for c in payload.citations]
     )
@@ -220,7 +221,8 @@ async def verify_citations(
 
 
 @router.get("/graph/{case_no}", summary="Get precedent chain for a case")
-async def precedent_graph(case_no: str) -> dict:
+async def precedent_graph(case_no: str, user: AuthUser) -> dict:
+    _ = user
     supabase = await get_supabase()
     if not supabase:
         return {"case_no": case_no, "nodes": [], "edges": [], "note": "Database not configured"}

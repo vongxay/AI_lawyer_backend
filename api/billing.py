@@ -12,14 +12,15 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, status
 
-from core.security import CurrentUser, get_optional_user
+from core.security import CurrentUser, require_roles
 
 router = APIRouter(prefix="/api/v1/billing", tags=["billing"])
-OptionalUser = Annotated[CurrentUser | None, Depends(get_optional_user)]
+AuthUser = Annotated[CurrentUser, Depends(require_roles("client", "lawyer", "admin"))]
 
 
 @router.get("/subscription", summary="Get current subscription")
-async def get_subscription(user: OptionalUser) -> dict:
+async def get_subscription(user: AuthUser) -> dict:
+    _ = user
     return {
         "plan": "free",
         "status": "active",
@@ -30,7 +31,8 @@ async def get_subscription(user: OptionalUser) -> dict:
 
 
 @router.post("/subscribe", status_code=status.HTTP_501_NOT_IMPLEMENTED, summary="Create checkout session")
-async def subscribe(payload: dict, user: OptionalUser) -> dict:
+async def subscribe(payload: dict, user: AuthUser) -> dict:
+    _ = user
     plan = payload.get("plan", "pro")
     return {
         "error": "BILLING_PROVIDER_NOT_CONFIGURED",
@@ -39,12 +41,14 @@ async def subscribe(payload: dict, user: OptionalUser) -> dict:
 
 
 @router.post("/cancel", summary="Cancel subscription")
-async def cancel_subscription(user: OptionalUser) -> dict:
+async def cancel_subscription(user: AuthUser) -> dict:
+    _ = user
     return {"success": True, "status": "noop", "message": "No paid subscription is active."}
 
 
 @router.get("/portal", status_code=status.HTTP_501_NOT_IMPLEMENTED, summary="Get billing portal URL")
-async def get_portal_url(user: OptionalUser) -> dict:
+async def get_portal_url(user: AuthUser) -> dict:
+    _ = user
     return {
         "error": "BILLING_PROVIDER_NOT_CONFIGURED",
         "message": "Billing portal is not configured yet.",

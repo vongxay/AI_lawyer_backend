@@ -867,6 +867,7 @@ ALTER TABLE query_analytics ENABLE ROW LEVEL SECURITY;
 CREATE OR REPLACE FUNCTION get_user_tenant_id()
 RETURNS uuid
 LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public
 AS $$
     SELECT tenant_id FROM users WHERE id = auth.uid()
 $$;
@@ -875,6 +876,7 @@ $$;
 CREATE OR REPLACE FUNCTION get_user_role()
 RETURNS user_role
 LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public
 AS $$
     SELECT role FROM users WHERE id = auth.uid()
 $$;

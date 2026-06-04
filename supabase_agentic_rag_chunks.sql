@@ -174,6 +174,7 @@ CREATE OR REPLACE FUNCTION public.hybrid_document_chunk_search(
     p_jurisdiction      text DEFAULT NULL,
     p_status            text DEFAULT 'active',
     p_review_status     text DEFAULT 'approved',
+    p_tenant_id         uuid DEFAULT NULL,
     match_count         int DEFAULT 10,
     rrf_k               int DEFAULT 60
 )
@@ -195,7 +196,7 @@ RETURNS TABLE (
 )
 LANGUAGE sql
 STABLE
-SECURITY DEFINER
+SECURITY INVOKER
 SET search_path = public
 AS $$
     WITH semantic AS (
@@ -218,6 +219,7 @@ AS $$
           AND (p_jurisdiction IS NULL OR dc.jurisdiction = p_jurisdiction)
           AND (p_status IS NULL OR dc.status = p_status)
           AND (p_review_status IS NULL OR dc.review_status = p_review_status)
+          AND (dc.tenant_id IS NULL OR (p_tenant_id IS NOT NULL AND dc.tenant_id = p_tenant_id))
         ORDER BY dc.embedding <=> query_embedding
         LIMIT 80
     ),
@@ -243,9 +245,10 @@ AS $$
         FROM document_chunks dc
         WHERE to_tsvector('simple', coalesce(dc.title, '') || ' ' || coalesce(dc.section_ref, '') || ' ' || coalesce(dc.content, ''))
               @@ plainto_tsquery('simple', query_text)
-          AND (p_jurisdiction IS NULL OR dc.jurisdiction = p_jurisdiction)
-          AND (p_status IS NULL OR dc.status = p_status)
-          AND (p_review_status IS NULL OR dc.review_status = p_review_status)
+            AND (p_jurisdiction IS NULL OR dc.jurisdiction = p_jurisdiction)
+            AND (p_status IS NULL OR dc.status = p_status)
+            AND (p_review_status IS NULL OR dc.review_status = p_review_status)
+            AND (dc.tenant_id IS NULL OR (p_tenant_id IS NOT NULL AND dc.tenant_id = p_tenant_id))
         LIMIT 80
     ),
     all_results AS (

@@ -80,7 +80,7 @@ class _AnthropicProvider:
         temperature: float = 0.1,
     ) -> LlmResult:
         msgs = [{"role": m.role, "content": m.content} for m in messages]
-        kwargs: dict = dict(model=model, messages=msgs, max_tokens=max_tokens)
+        kwargs: dict = dict(model=model, messages=msgs, max_tokens=max_tokens, temperature=temperature)
         if system:
             kwargs["system"] = system
 

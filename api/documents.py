@@ -5,19 +5,19 @@ Document upload and analysis endpoint.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 
 from api.dependencies import WorkflowDep
 from api.schemas import DocumentAnalysisResponse
 from core.config import get_settings
 from core.exceptions import FileTooLargeError, UnsupportedFileTypeError
-from core.security import get_optional_user
-from fastapi import Depends
-from typing import Annotated
-from core.security import CurrentUser
+from core.security import CurrentUser, require_roles
+from services.ingestion_service import extract_text
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
-OptionalUser = Annotated[CurrentUser | None, Depends(get_optional_user)]
+AuthUser = Annotated[CurrentUser, Depends(require_roles("client", "lawyer", "admin"))]
 
 
 @router.post(
@@ -27,21 +27,20 @@ OptionalUser = Annotated[CurrentUser | None, Depends(get_optional_user)]
 )
 async def analyze_document(
     workflow: WorkflowDep,
-    user: OptionalUser,
+    user: AuthUser,
     file: UploadFile = File(...),
-    question: str = "วิเคราะห์เอกสารนี้และระบุประเด็นกฎหมายสำคัญ",
-    case_id: str | None = None,
+    question: str = Form("Analyze this legal document and identify the key legal issues."),
+    case_id: str | None = Form(default=None),
 ) -> dict:
     settings = get_settings()
+    content_type = file.content_type or "application/octet-stream"
 
-    # Validate file type
-    if file.content_type not in settings.allowed_mime_types:
+    if content_type not in settings.allowed_mime_types:
         raise UnsupportedFileTypeError(
-            f"File type '{file.content_type}' is not supported.",
-            details={"allowed": list(settings.allowed_mime_types)},
+            f"File type '{content_type}' is not supported.",
+            details={"allowed": sorted(settings.allowed_mime_types)},
         )
 
-    # Validate file size
     content = await file.read()
     size_mb = len(content) / (1024 * 1024)
     if size_mb > settings.max_upload_size_mb:
@@ -49,27 +48,19 @@ async def analyze_document(
             f"File size {size_mb:.1f}MB exceeds limit of {settings.max_upload_size_mb}MB"
         )
 
-    # Extract text from PDF (basic — production would use PyMuPDF)
-    document_text = _extract_text(content, file.content_type)
+    document_text = extract_text(content, content_type, file.filename or "uploaded-document")
 
     result = await workflow.orchestrate(
-        question=question,
+        question=question.strip(),
         case_id=case_id,
         document_text=document_text,
-        user_id=user.sub if user else None,
-        tenant_id=user.tenant_id if user else None,
+        user_id=user.sub,
+        tenant_id=user.tenant_id,
     )
 
     return {
-        "file_name": file.filename,
-        "file_type": file.content_type,
+        "file_name": file.filename or "uploaded-document",
+        "file_type": content_type,
+        "text_length": len(document_text),
         "analysis": result.response,
     }
-
-
-def _extract_text(content: bytes, content_type: str) -> str:
-    """Basic text extraction. In production use PyMuPDF for PDF, python-docx for DOCX."""
-    if "text" in content_type:
-        return content.decode("utf-8", errors="replace")
-    # For PDF/DOCX: return placeholder — production uses full extraction pipeline
-    return f"[Document content — {len(content)} bytes. Full extraction requires PyMuPDF.]"

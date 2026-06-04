@@ -151,7 +151,7 @@ class WorkflowManager:
                 )
 
         # ── Step 1: Load case memory ──────────────────────────────────────────
-        memory = await self._case_memory.get(case_id)
+        memory = await self._case_memory.get(case_id, tenant_id=tenant_id)
 
         # ── Step 2: Classify query ────────────────────────────────────────────
         query_type = await self._classifier.classify(clean_question)
@@ -184,6 +184,7 @@ class WorkflowManager:
                         question=clean_question,
                         memory=memory,
                         jurisdiction=effective_jurisdiction,
+                        tenant_id=tenant_id,
                     )
                 )
 
@@ -322,6 +323,8 @@ class WorkflowManager:
             verification_data=verification_data,
             risk_data=risk_data,
             research_data=research_data,
+            document_data=document_data,
+            evidence_data=evidence_data,
             quality=research_quality,
             guardrails=guardrail_result,
             agents_used=agents_used,
@@ -438,6 +441,8 @@ class WorkflowManager:
         verification_data: dict | None,
         risk_data: dict | None,
         research_data: dict | None,
+        document_data: dict | None,
+        evidence_data: dict | None,
         quality: dict[str, Any],
         guardrails: dict[str, Any],
         agents_used: list[str],
@@ -454,6 +459,8 @@ class WorkflowManager:
             "processing_time_ms": processing_ms,
             "escalated_to_expert": escalated,
             "risk": risk_data,
+            "document": document_data,
+            "evidence": evidence_data,
             "answer_quality": {
                 **quality,
                 "guardrails": guardrails,

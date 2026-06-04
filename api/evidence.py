@@ -5,19 +5,19 @@ Evidence upload and multimodal analysis endpoint.
 """
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 
 from agents.evidence_agent import EvidenceFile
 from api.dependencies import WorkflowDep
 from api.schemas import EvidenceAnalysisResponse
 from core.config import get_settings
 from core.exceptions import FileTooLargeError, UnsupportedFileTypeError
-from core.security import CurrentUser, get_optional_user
+from core.security import CurrentUser, require_roles
 
 router = APIRouter(prefix="/api/v1/evidence", tags=["evidence"])
-OptionalUser = Annotated[CurrentUser | None, Depends(get_optional_user)]
+AuthUser = Annotated[CurrentUser, Depends(require_roles("client", "lawyer", "admin"))]
 
 
 @router.post(
@@ -27,19 +27,20 @@ OptionalUser = Annotated[CurrentUser | None, Depends(get_optional_user)]
 )
 async def analyze_evidence(
     workflow: WorkflowDep,
-    user: OptionalUser,
+    user: AuthUser,
     files: list[UploadFile] = File(...),
-    question: str = "วิเคราะห์หลักฐานนี้และประเมินความเกี่ยวข้องทางกฎหมาย",
-    case_id: str | None = None,
+    question: str = Form("Analyze this evidence and assess its legal relevance."),
+    case_id: str | None = Form(default=None),
 ) -> dict:
     settings = get_settings()
     evidence_files: list[EvidenceFile] = []
 
     for upload in files:
-        if upload.content_type not in settings.allowed_mime_types:
+        content_type = upload.content_type or "application/octet-stream"
+        if content_type not in settings.allowed_mime_types:
             raise UnsupportedFileTypeError(
-                f"'{upload.filename}' has unsupported type '{upload.content_type}'",
-                details={"allowed": list(settings.allowed_mime_types)},
+                f"'{upload.filename}' has unsupported type '{content_type}'",
+                details={"allowed": sorted(settings.allowed_mime_types)},
             )
 
         content = await upload.read()
@@ -49,23 +50,34 @@ async def analyze_evidence(
 
         evidence_files.append(EvidenceFile(
             filename=upload.filename or "unnamed",
-            content_type=upload.content_type or "application/octet-stream",
+            content_type=content_type,
             content=content,
         ))
 
     result = await workflow.orchestrate(
-        question=question,
+        question=question.strip(),
         case_id=case_id,
         evidence_files=evidence_files,
-        user_id=user.sub if user else None,
-        tenant_id=user.tenant_id if user else None,
+        user_id=user.sub,
+        tenant_id=user.tenant_id,
     )
 
-    ev_data = result.response.get("risk") or {}  # evidence data flows through evidence agent
-    # Better: pull from agent results directly — in production wire evidence_data separately
+    evidence = _normalise_evidence_data(result.response.get("evidence"), len(evidence_files))
+    return evidence
+
+
+def _normalise_evidence_data(data: Any, file_count: int) -> dict[str, Any]:
+    if isinstance(data, dict) and data:
+        return {
+            "items": data.get("items") or [],
+            "overall_strength": data.get("overall_strength") or "UNKNOWN",
+            "gaps": data.get("gaps") or [],
+            "evidence_summary": data.get("evidence_summary") or f"{file_count} file(s) analysed.",
+        }
+
     return {
         "items": [],
-        "overall_strength": "MODERATE",
-        "gaps": [],
-        "evidence_summary": f"{len(evidence_files)} file(s) analysed.",
+        "overall_strength": "UNKNOWN",
+        "gaps": ["Evidence agent did not return structured analysis."],
+        "evidence_summary": "Evidence analysis unavailable; review the original files manually.",
     }

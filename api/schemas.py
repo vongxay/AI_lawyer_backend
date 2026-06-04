@@ -148,7 +148,12 @@ class VerifyCitationsRequest(BaseModel):
 
 
 class FeedbackRequest(BaseModel):
-    session_id: str = Field(min_length=1)
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    session_id: str = Field(
+        min_length=1,
+        validation_alias=AliasChoices("session_id", "query_id"),
+    )
     rating: int = Field(ge=1, le=5)
     comment: str | None = Field(default=None, max_length=2000)
     corrected_answer: str | None = Field(default=None, max_length=5000)
@@ -179,6 +184,8 @@ class LegalQueryResponse(BaseModel):
     processing_time_ms: int = 0
     escalated_to_expert: bool = False
     risk: RiskAnalysis | dict | None = None
+    document: dict[str, Any] | None = None
+    evidence: dict[str, Any] | None = None
     answer_quality: dict[str, Any] = Field(default_factory=dict)
     disclaimer: str
 
@@ -186,6 +193,7 @@ class LegalQueryResponse(BaseModel):
 class DocumentAnalysisResponse(BaseModel):
     file_name: str
     file_type: str
+    text_length: int | None = None
     analysis: dict[str, Any]
 
 

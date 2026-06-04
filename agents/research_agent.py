@@ -60,6 +60,7 @@ class LegalResearchAgent(BaseAgent):
         question: str,
         memory: dict,
         jurisdiction: str | None = None,
+        tenant_id: str | None = None,
     ) -> dict[str, Any]:
         settings = get_settings()
         canonical_jurisdiction_value = canonical_jurisdiction(jurisdiction)
@@ -67,6 +68,7 @@ class LegalResearchAgent(BaseAgent):
         chunks, retrieval_trace, embedding_tokens = await self._agentic_retrieve(
             question=question,
             jurisdiction=canonical_jurisdiction_value,
+            tenant_id=tenant_id,
             top_k=settings.rag_top_k * 3,
         )
 
@@ -119,14 +121,19 @@ class LegalResearchAgent(BaseAgent):
         *,
         question: str,
         jurisdiction: str | None,
+        tenant_id: str | None,
         top_k: int,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
         plan = self._planner.plan(question, jurisdiction)
-        chunks, trace, tokens = await self._run_retrieval_plan(plan, top_k=top_k)
+        chunks, trace, tokens = await self._run_retrieval_plan(plan, tenant_id=tenant_id, top_k=top_k)
 
         if self._planner.should_second_pass(chunks):
             second_pass = self._planner.second_pass(question, jurisdiction)
-            more_chunks, more_trace, more_tokens = await self._run_retrieval_plan(second_pass, top_k=top_k)
+            more_chunks, more_trace, more_tokens = await self._run_retrieval_plan(
+                second_pass,
+                tenant_id=tenant_id,
+                top_k=top_k,
+            )
             chunks.extend(more_chunks)
             trace.extend(more_trace)
             tokens += more_tokens
@@ -137,6 +144,7 @@ class LegalResearchAgent(BaseAgent):
         self,
         plan: list[RetrievalQuery],
         *,
+        tenant_id: str | None,
         top_k: int,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
         all_chunks: list[dict[str, Any]] = []
@@ -161,6 +169,7 @@ class LegalResearchAgent(BaseAgent):
                 query=item.query,
                 embedding=embedding_vector,
                 jurisdiction=item.jurisdiction,
+                tenant_id=tenant_id,
                 top_k=top_k,
             )
             all_chunks.extend(chunks)

@@ -27,6 +27,7 @@ class Retriever:
         query: str,
         embedding: list[float] | None = None,
         jurisdiction: str | None = None,
+        tenant_id: str | None = None,
         top_k: int = 10,
     ) -> list[dict[str, Any]]:
         if not self._supabase:
@@ -38,6 +39,7 @@ class Retriever:
                 query=query,
                 embedding=embedding,
                 jurisdiction=canonical_jurisdiction(jurisdiction),
+                tenant_id=tenant_id,
                 top_k=top_k,
             )
         except Exception as exc:
@@ -50,6 +52,7 @@ class Retriever:
         query: str,
         embedding: list[float] | None,
         jurisdiction: str | None,
+        tenant_id: str | None,
         top_k: int,
     ) -> list[dict[str, Any]]:
         """
@@ -60,6 +63,7 @@ class Retriever:
             query=query,
             embedding=embedding,
             jurisdiction=jurisdiction,
+            tenant_id=tenant_id,
             top_k=top_k,
         )
         if chunk_rows:
@@ -83,6 +87,7 @@ class Retriever:
         query: str,
         embedding: list[float] | None,
         jurisdiction: str | None,
+        tenant_id: str | None,
         top_k: int,
     ) -> list[dict[str, Any]]:
         params: dict[str, Any] = {
@@ -96,6 +101,8 @@ class Retriever:
             params["query_embedding"] = embedding
         if jurisdiction:
             params["p_jurisdiction"] = jurisdiction
+        if tenant_id:
+            params["p_tenant_id"] = tenant_id
 
         try:
             result = await self._supabase.rpc("hybrid_document_chunk_search", params).execute()

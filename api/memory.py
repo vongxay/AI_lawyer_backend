@@ -30,7 +30,7 @@ async def get_case_memory(
     user: AuthUser,
 ) -> dict:
     svc = await _get_memory_service()
-    data = await svc.get(case_id)
+    data = await svc.get(case_id, tenant_id=user.tenant_id)
     return {
         "case_id": case_id,
         "facts_summary": data.get("facts_summary"),
@@ -48,6 +48,6 @@ async def get_case_memory(
 )
 async def get_case_timeline(case_id: str, user: AuthUser) -> list[dict]:
     svc = await _get_memory_service()
-    data = await svc.get(case_id)
+    data = await svc.get(case_id, tenant_id=user.tenant_id)
     history = data.get("irac_history", [])
     return [{"ts": h.get("ts", 0), "question": h.get("question")} for h in history]

@@ -12,23 +12,23 @@ from fastapi import APIRouter, Depends
 from api.schemas import FeedbackRequest
 from core.database import get_supabase
 from core.logging import get_logger
-from core.security import CurrentUser, get_optional_user
+from core.security import CurrentUser, require_roles
 
 router = APIRouter(prefix="/api/v1/feedback", tags=["feedback"])
 log = get_logger(__name__)
-OptionalUser = Annotated[CurrentUser | None, Depends(get_optional_user)]
+AuthUser = Annotated[CurrentUser, Depends(require_roles("client", "lawyer", "admin"))]
 
 
 @router.post("/", summary="Submit feedback on a legal query response")
 async def submit_feedback(
     payload: FeedbackRequest,
-    user: OptionalUser,
+    user: AuthUser,
 ) -> dict:
     supabase = await get_supabase()
 
     entry = {
         "session_id": payload.session_id,
-        "user_id": user.sub if user else None,
+        "user_id": user.sub,
         "rating": payload.rating,
         "comment": payload.comment,
         "corrected_answer": payload.corrected_answer,

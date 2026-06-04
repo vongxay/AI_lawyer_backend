@@ -42,7 +42,7 @@ services:
     build:
       context: .
       target: dev
-    command: python -m arq main:WorkerSettings
+    command: python -m arq workers.WorkerSettings
     environment:
       APP_ENV: development
       REDIS_URL: redis://redis:6379/0

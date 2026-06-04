@@ -55,7 +55,7 @@ services:
       target: production
     image: ai-lawyer-backend:latest
     container_name: ai-lawyer-worker
-    command: python -m arq main:WorkerSettings
+    command: python -m arq workers.WorkerSettings
     environment:
       APP_ENV: production
       REDIS_URL: redis://redis:6379/0
