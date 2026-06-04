@@ -17,6 +17,7 @@ from typing import Any
 
 from agents.base_agent import BaseAgent
 from core.config import get_settings
+from core.jurisdiction import infer_response_language, response_language_instruction
 from core.logging import get_logger
 
 log = get_logger(__name__)
@@ -81,9 +82,11 @@ class RiskStrategyAgent(BaseAgent):
         question: str,
         irac: dict,
         research: dict | None = None,
+        response_language: str | None = None,
         **kwargs,
     ) -> dict[str, Any]:
         settings = get_settings()
+        language = infer_response_language(question, response_language)
 
         # Extract relevant context from IRAC result
         irac_data = irac.get("irac", {})
@@ -94,12 +97,12 @@ class RiskStrategyAgent(BaseAgent):
 
         result = await self._call_llm(
             model=settings.model_risk,
-            system=_RISK_SYSTEM_PROMPT,
+            system=f"{_RISK_SYSTEM_PROMPT}\n\nLANGUAGE OVERRIDE:\n{response_language_instruction(language)}",
             user_message=context_summary,
             max_tokens=settings.llm_max_tokens_risk,
         )
 
-        parsed = self._parse_strategy_response(result.text, conclusion)
+        parsed = self._parse_strategy_response(result.text, conclusion, language)
         parsed["_tokens"] = result.total_tokens
         parsed["_confidence"] = 0.80
 
@@ -144,13 +147,66 @@ class RiskStrategyAgent(BaseAgent):
 
         return "\n".join(parts)
 
-    def _parse_strategy_response(self, text: str, irac_conclusion: dict) -> dict[str, Any]:
+    def _parse_strategy_response(
+        self,
+        text: str,
+        irac_conclusion: dict,
+        language: str = "en",
+    ) -> dict[str, Any]:
         try:
             clean = re.sub(r"```(?:json)?\s*|\s*```", "", text.strip())
             return json.loads(clean)
         except (json.JSONDecodeError, ValueError):
             log.warning("risk.json_parse_failed")
             # Graceful fallback using IRAC conclusion data
+            if language == "lo":
+                return {
+                    "win_probability": irac_conclusion.get("win_probability", 0.5),
+                    "risk_level": irac_conclusion.get("risk_level", "MEDIUM"),
+                    "strategic_options": [
+                        {
+                            "name": "ເຈລະຈາ",
+                            "pros": ["ໄວກວ່າ", "ຫຼຸດຄ່າໃຊ້ຈ່າຍ"],
+                            "cons": ["ອາດໄດ້ຜົນຕ່ຳກວ່າການຮຽກຮ້ອງເຕັມຈຳນວນ"],
+                            "est_days": 30,
+                            "success_likelihood": "MEDIUM",
+                        },
+                        {
+                            "name": "ດຳເນີນຄະດີ",
+                            "pros": ["ໄດ້ຄຳຕັດສິນ", "ບັງຄັບຄະດີໄດ້"],
+                            "cons": ["ໃຊ້ເວລາ", "ຄ່າໃຊ້ຈ່າຍສູງ"],
+                            "est_days": 365,
+                            "success_likelihood": "MEDIUM",
+                        },
+                    ],
+                    "recommended_option": "ເຈລະຈາ",
+                    "immediate_actions": irac_conclusion.get("action_steps", []),
+                }
+
+            if language == "en":
+                return {
+                    "win_probability": irac_conclusion.get("win_probability", 0.5),
+                    "risk_level": irac_conclusion.get("risk_level", "MEDIUM"),
+                    "strategic_options": [
+                        {
+                            "name": "Negotiate",
+                            "pros": ["Faster", "Lower cost"],
+                            "cons": ["May recover less than the full claim"],
+                            "est_days": 30,
+                            "success_likelihood": "MEDIUM",
+                        },
+                        {
+                            "name": "Litigate",
+                            "pros": ["Binding judgment", "Enforceable decision"],
+                            "cons": ["Time-consuming", "Higher cost"],
+                            "est_days": 365,
+                            "success_likelihood": "MEDIUM",
+                        },
+                    ],
+                    "recommended_option": "Negotiate",
+                    "immediate_actions": irac_conclusion.get("action_steps", []),
+                }
+
             return {
                 "win_probability": irac_conclusion.get("win_probability", 0.5),
                 "risk_level": irac_conclusion.get("risk_level", "MEDIUM"),

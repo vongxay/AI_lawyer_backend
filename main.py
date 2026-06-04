@@ -33,6 +33,7 @@ from api import admin_compat as admin_compat_router
 from api import analytics as analytics_router
 from api import auth as auth_router
 from api import billing as billing_router
+from api import dashboard as dashboard_router
 from api import documents as documents_router
 from api import evidence as evidence_router
 from api import evaluation as evaluation_router
@@ -194,6 +195,7 @@ def create_app() -> FastAPI:
     app.include_router(feedback_router.router)
     app.include_router(auth_router.router)
     app.include_router(billing_router.router)
+    app.include_router(dashboard_router.router)
     app.include_router(evaluation_router.router)
     app.include_router(knowledge_router.router)
     app.include_router(users_router.router)

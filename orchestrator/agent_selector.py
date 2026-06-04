@@ -65,19 +65,20 @@ class AgentSelector:
         *,
         force_document: bool = False,
         force_evidence: bool = False,
+        force_risk: bool = False,
     ) -> AgentPlan:
         """
         Return the agent plan for this query type.
         force_* flags override plan when caller knows files are present.
         """
         base = AGENT_PLANS[query_type]
-        if force_document or force_evidence:
+        if force_document or force_evidence or force_risk:
             return AgentPlan(
                 use_research=base.use_research,
                 use_reasoning=base.use_reasoning,
                 use_verification=base.use_verification,
                 use_document=base.use_document or force_document,
                 use_evidence=base.use_evidence or force_evidence,
-                use_risk=base.use_risk,
+                use_risk=base.use_risk or force_risk,
             )
         return base

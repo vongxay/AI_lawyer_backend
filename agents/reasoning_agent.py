@@ -20,7 +20,12 @@ from typing import Any
 
 from agents.base_agent import BaseAgent
 from core.config import get_settings
-from core.jurisdiction import contains_lao_script, contains_thai_script
+from core.jurisdiction import (
+    contains_lao_script,
+    contains_thai_script,
+    infer_response_language,
+    response_language_instruction,
+)
 from core.logging import get_logger
 
 log = get_logger(__name__)
@@ -122,8 +127,10 @@ class IracReasoningAgent(BaseAgent):
         document: dict | None = None,
         evidence: dict | None = None,
         memory: dict,
+        response_language: str | None = None,
     ) -> dict[str, Any]:
         settings = get_settings()
+        language = infer_response_language(question, response_language)
 
         # Build context from all upstream agents
         context = self._build_context(
@@ -148,7 +155,7 @@ class IracReasoningAgent(BaseAgent):
 
         result = await self._call_llm(
             model=settings.model_reasoning,
-            system=_IRAC_SYSTEM_PROMPT,
+            system=f"{_IRAC_SYSTEM_PROMPT}\n\nLANGUAGE OVERRIDE:\n{response_language_instruction(language)}",
             user_message=user_message,
             max_tokens=settings.llm_max_tokens_reasoning,
         )
@@ -366,6 +373,14 @@ class IracReasoningAgent(BaseAgent):
 
     def _fallback_response(self, question: str, raw_text: str) -> dict[str, Any]:
         """When JSON parse fails, wrap raw text in minimal IRAC structure."""
+        language = infer_response_language(question)
+        if language == "lo":
+            recommendation = "ກະລຸນາກວດສອບຄຳຕອບນີ້ກັບທະນາຍຄວາມລາວກ່ອນນຳໄປໃຊ້ຈິງ."
+        elif language == "th":
+            recommendation = "โปรดตรวจสอบคำตอบนี้กับทนายความก่อนนำไปใช้จริง."
+        else:
+            recommendation = "Please review this answer with a qualified lawyer before taking real-world action."
+
         return {
             "irac": {
                 "issue": {"primary": question, "secondary": []},
@@ -376,7 +391,7 @@ class IracReasoningAgent(BaseAgent):
                     "counter_args": [], "rebuttals": [],
                 },
                 "conclusion": {
-                    "recommendation": "โปรดตรวจสอบคำตอบกับทนายความ",
+                    "recommendation": recommendation,
                     "action_steps": [],
                     "risk_level": "MEDIUM",
                     "win_probability": 0.5,

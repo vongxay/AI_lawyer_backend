@@ -144,20 +144,18 @@ class CitationVerificationAgent(BaseAgent):
         terms = self._search_terms(ref)
         selects = (
             "id, title, status, year_be, section_number, source_url",
-            "id, title, status, year, section, source_url",
             "id, title, status",
         )
         filters = [(column, term) for term in terms for column in ("title", "full_text")]
         section = self._section_number(ref)
         if section:
-            filters.extend([("section_number", section), ("section", section)])
+            filters.append(("section_number", section))
         return await self._first_match("laws", selects, filters)
 
     async def _find_case(self, ref: str) -> dict | None:
         terms = self._search_terms(ref)
         selects = (
             "id, case_no, court, year_be, source_url",
-            "id, case_no, court, year, source_url",
             "id, case_no, court",
         )
         filters = [(column, term) for term in terms for column in ("case_no", "summary", "ruling")]

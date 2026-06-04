@@ -21,7 +21,7 @@ log = get_logger(__name__)
 class Retriever:
     def __init__(self, supabase: "AsyncClient | None" = None) -> None:
         self._supabase = supabase
-        self._chunk_search_supports_tenant_param: bool | None = None
+        self._chunk_search_supports_tenant_param: bool | None = False
 
     async def retrieve(
         self,

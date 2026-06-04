@@ -165,9 +165,26 @@ class ExpertQueueService:
         log.warning("expert_queue.added", reason=reason, confidence=confidence)
 
         if self._supabase:
+            message_id = await self._create_review_message(
+                session_id=session_id,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                reason=reason,
+                confidence=confidence,
+                query_preview=query_preview,
+            )
+            if not message_id:
+                log.warning(
+                    "expert_queue.message_create.skipped",
+                    reason="database_requires_message_id",
+                )
+                self._in_memory.append(entry)
+                return
+
             modern_entry = {
                 "tenant_id": tenant_id,
                 "session_id": session_id,
+                "message_id": message_id,
                 "flagged_reason": reason,
                 "confidence_at_flag": confidence,
                 "status": "pending",
@@ -175,38 +192,9 @@ class ExpertQueueService:
             }
             try:
                 await self._supabase.table("expert_reviews").insert(modern_entry).execute()
+                log.info("expert_queue.persist.ok", mode="created_message", message_id=message_id)
+                return
             except Exception as exc:
-                if "message_id" in str(exc):
-                    message_id = await self._create_review_message(
-                        session_id=session_id,
-                        tenant_id=tenant_id,
-                        user_id=user_id,
-                        reason=reason,
-                        confidence=confidence,
-                        query_preview=query_preview,
-                    )
-                    if message_id:
-                        try:
-                            await self._supabase.table("expert_reviews").insert({
-                                **modern_entry,
-                                "message_id": message_id,
-                            }).execute()
-                            log.info("expert_queue.persist.ok", mode="created_message", message_id=message_id)
-                            return
-                        except Exception as retry_exc:
-                            log.error(
-                                "expert_queue.persist_with_message.failed",
-                                error=str(retry_exc),
-                                first_error=str(exc),
-                            )
-                    else:
-                        log.warning(
-                            "expert_queue.message_create.skipped",
-                            reason="database_requires_message_id",
-                            error=str(exc),
-                        )
-                    self._in_memory.append(entry)
-                    return
                 try:
                     await self._supabase.table("expert_reviews").insert(entry).execute()
                 except Exception as legacy_exc:

@@ -57,7 +57,10 @@ async def ping_redis() -> bool:
         r = await get_redis()
         return await r.ping()
     except Exception as exc:
-        log.warning("redis.ping.failed", error=str(exc))
+        if get_settings().redis_required:
+            log.warning("redis.ping.failed", error=str(exc))
+        else:
+            log.info("redis.ping.unavailable_optional", error=str(exc))
         return False
 
 

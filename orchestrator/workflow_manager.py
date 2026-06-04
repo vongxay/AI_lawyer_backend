@@ -41,11 +41,11 @@ from agents.risk_strategy_agent import RiskStrategyAgent
 from agents.verification_agent import CitationVerificationAgent
 from core.config import get_settings
 from core.exceptions import ExternalServiceError, LowConfidenceError, ProviderNotConfiguredError
-from core.jurisdiction import infer_jurisdiction
+from core.jurisdiction import infer_jurisdiction, infer_response_language
 from core.logging import get_logger
 from memory.case_memory import CaseMemoryService
 from orchestrator.agent_selector import AgentSelector
-from orchestrator.query_classifier import QueryClassifier
+from orchestrator.query_classifier import QueryClassifier, QueryType
 from services.audit_service import AuditService, ExpertQueueService
 from services.answer_guardrails import LegalAnswerGuardrails
 from services.cache_service import CacheService
@@ -118,10 +118,18 @@ class WorkflowManager:
         user_id: str | None = None,
         tenant_id: str | None = None,
         session_id: str | None = None,
+        query_mode: str | None = None,
+        response_style: str | None = None,
+        urgency: str | None = None,
+        model_id: str | None = None,
     ) -> OrchestrationResult:
         started = time.perf_counter()
         sid = session_id or str(uuid.uuid4())
         effective_jurisdiction = infer_jurisdiction(question, jurisdiction)
+        effective_mode = self._normalise_query_mode(query_mode, evidence_files=evidence_files, document_text=document_text)
+        effective_style = self._normalise_response_style(response_style, query_mode=effective_mode)
+        effective_urgency = urgency if urgency in {"normal", "urgent", "critical"} else "normal"
+        response_language = infer_response_language(question)
 
         # ── Step 0: PII redaction on all user input ───────────────────────────
         clean_question = self._pii.redact_text(question)
@@ -133,13 +141,23 @@ class WorkflowManager:
             jurisdiction=effective_jurisdiction,
             user_id=user_id,
             tenant_id=tenant_id,
+            query_mode=effective_mode,
+            response_style=effective_style,
+            urgency=effective_urgency,
+            model_id=model_id,
+            response_language=response_language,
         )
         cacheable = clean_doc_text is None and not evidence_files
         if cacheable:
             cached = await self._cache.get(cache_key, namespace="legal_qa")
             if cached:
                 processing_ms = int((time.perf_counter() - started) * 1000)
-                response = {**cached["response"], "processing_time_ms": processing_ms, "cached": True}
+                response = {
+                    **cached["response"],
+                    "processing_time_ms": processing_ms,
+                    "cached": True,
+                    "session_id": sid,
+                }
                 log.info("orchestrator.cache_hit", session_id=sid, cache_key=cache_key)
                 return OrchestrationResult(
                     response=response,
@@ -154,22 +172,30 @@ class WorkflowManager:
         memory = await self._case_memory.get(case_id, tenant_id=tenant_id)
 
         # ── Step 2: Classify query ────────────────────────────────────────────
-        query_type = await self._classifier.classify(clean_question)
+        classified_type = await self._classifier.classify(clean_question)
+        query_type = self._query_type_for_mode(effective_mode, classified_type)
 
         # ── Step 3: Dynamic agent selection ──────────────────────────────────
         plan = self._selector.select(
             query_type,
             force_document=bool(document_text),
             force_evidence=bool(evidence_files),
+            force_risk=effective_mode == "serious_case"
+            or effective_style == "action_plan"
+            or effective_urgency in {"urgent", "critical"},
         )
 
         log.info(
             "orchestrator.start",
             session_id=sid,
             query_type=query_type,
+            query_mode=effective_mode,
+            response_style=effective_style,
+            urgency=effective_urgency,
             plan=str(plan),
             jurisdiction=effective_jurisdiction,
             case_id=case_id,
+            response_language=response_language,
         )
 
         # ── Step 4: Parallel phase — Research + Document + Evidence ──────────
@@ -221,6 +247,7 @@ class WorkflowManager:
             document=document_data,
             evidence=evidence_data,
             memory=memory,
+            response_language=response_language,
         )
         if not reasoning_result.ok:
             if "No real LLM API key" in (reasoning_result.error or ""):
@@ -241,6 +268,7 @@ class WorkflowManager:
                 question=clean_question,
                 irac=irac_data,
                 research=research_data,
+                response_language=response_language,
             )
             if plan.use_risk
             else self._noop()
@@ -331,6 +359,11 @@ class WorkflowManager:
             confidence=final_confidence,
             processing_ms=processing_ms,
             escalated=escalated,
+            query_type=query_type,
+            query_mode=effective_mode,
+            response_style=effective_style,
+            session_id=sid,
+            response_language=response_language,
         )
 
         if cacheable and not escalated:
@@ -369,6 +402,11 @@ class WorkflowManager:
         jurisdiction: str | None,
         user_id: str | None,
         tenant_id: str | None,
+        query_mode: str | None,
+        response_style: str | None,
+        urgency: str | None,
+        model_id: str | None,
+        response_language: str | None,
     ) -> str:
         payload = {
             "question": question,
@@ -376,9 +414,49 @@ class WorkflowManager:
             "jurisdiction": jurisdiction,
             "user_id": user_id,
             "tenant_id": tenant_id,
+            "query_mode": query_mode,
+            "response_style": response_style,
+            "urgency": urgency,
+            "model_id": model_id,
+            "response_language": response_language,
         }
         raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    def _normalise_query_mode(
+        self,
+        query_mode: str | None,
+        *,
+        evidence_files: list[EvidenceFile] | None,
+        document_text: str | None,
+    ) -> str:
+        if evidence_files:
+            return "evidence"
+        if document_text:
+            return "document"
+        mode = (query_mode or "general").strip().lower()
+        if mode in {"general", "serious_case", "evidence", "document", "draft"}:
+            return mode
+        return "general"
+
+    def _normalise_response_style(self, response_style: str | None, *, query_mode: str) -> str:
+        style = (response_style or "").strip().lower()
+        if style in {"plain", "irac", "action_plan"}:
+            return style
+        if query_mode == "general":
+            return "plain"
+        if query_mode in {"serious_case", "evidence"}:
+            return "action_plan"
+        return "irac"
+
+    def _query_type_for_mode(self, query_mode: str, classified_type: QueryType) -> QueryType:
+        overrides: dict[str, QueryType] = {
+            "serious_case": "case_strategy",
+            "evidence": "evidence_analysis",
+            "document": "document_review",
+            "draft": "draft_document",
+        }
+        return overrides.get(query_mode, classified_type)
 
     def _extract_citations(self, irac_data: dict) -> list[dict[str, Any]]:
         explicit = irac_data.get("citations")
@@ -449,9 +527,22 @@ class WorkflowManager:
         confidence: float,
         processing_ms: int,
         escalated: bool,
+        query_type: str,
+        query_mode: str,
+        response_style: str,
+        session_id: str,
+        response_language: str,
     ) -> dict[str, Any]:
+        irac = irac_data.get("irac", {})
+        disclaimer = self._disclaimer_for_language(response_language)
         return {
-            "irac": irac_data.get("irac", {}),
+            "irac": irac,
+            "answer": self._build_answer_text(irac, risk_data, response_style, response_language),
+            "query_type": query_type,
+            "query_mode": query_mode,
+            "response_style": response_style,
+            "response_language": response_language,
+            "session_id": session_id,
             "citations": (verification_data or {}).get("citations", irac_data.get("citations", [])),
             "citations_verified": (verification_data or {}).get("citations_verified", False),
             "confidence": round(confidence, 3),
@@ -466,8 +557,84 @@ class WorkflowManager:
                 "guardrails": guardrails,
                 "retrieval": (research_data or {}).get("retrieval", {}),
             },
-            "disclaimer": (
-                "คำตอบนี้เป็นข้อมูลทั่วไปเท่านั้น ไม่ใช่คำปรึกษาทางกฎหมายอย่างเป็นทางการ "
-                "/ This response is general information only and does not constitute formal legal advice."
-            ),
+            "disclaimer": disclaimer,
         }
+
+    def _build_answer_text(
+        self,
+        irac: dict[str, Any],
+        risk_data: dict | None,
+        response_style: str,
+        response_language: str = "en",
+    ) -> str:
+        conclusion = irac.get("conclusion") if isinstance(irac, dict) else {}
+        application = irac.get("application") if isinstance(irac, dict) else {}
+
+        recommendation = str((conclusion or {}).get("recommendation") or "").strip()
+        analysis = str((application or {}).get("analysis") or "").strip()
+        action_steps = [
+            str(step).strip()
+            for step in ((conclusion or {}).get("action_steps") or [])
+            if str(step).strip()
+        ]
+
+        if response_style == "plain":
+            return "\n\n".join(part for part in (recommendation, analysis) if part)
+
+        labels = self._answer_labels(response_language)
+        parts = []
+        if recommendation:
+            parts.append(f"{labels['recommendation']}\n{recommendation}")
+        if analysis:
+            parts.append(f"{labels['analysis']}\n{analysis}")
+        if action_steps:
+            parts.append(f"{labels['next_steps']}\n" + "\n".join(f"- {step}" for step in action_steps))
+
+        if response_style == "action_plan" and isinstance(risk_data, dict):
+            immediate_actions = [
+                str(step).strip()
+                for step in (risk_data.get("immediate_actions") or [])
+                if str(step).strip()
+            ]
+            if immediate_actions:
+                parts.append(f"{labels['immediate_actions']}\n" + "\n".join(f"- {step}" for step in immediate_actions))
+
+        return "\n\n".join(parts)
+
+    def _answer_labels(self, response_language: str) -> dict[str, str]:
+        if response_language == "lo":
+            return {
+                "recommendation": "ຄຳແນະນຳ",
+                "analysis": "ການວິເຄາະ",
+                "next_steps": "ຂັ້ນຕອນຕໍ່ໄປ",
+                "immediate_actions": "ສິ່ງທີ່ຄວນເຮັດທັນທີ",
+            }
+        if response_language == "th":
+            return {
+                "recommendation": "คำแนะนำ",
+                "analysis": "การวิเคราะห์",
+                "next_steps": "ขั้นตอนถัดไป",
+                "immediate_actions": "สิ่งที่ควรทำทันที",
+            }
+        return {
+            "recommendation": "Recommendation",
+            "analysis": "Analysis",
+            "next_steps": "Next steps",
+            "immediate_actions": "Immediate actions",
+        }
+
+    def _disclaimer_for_language(self, response_language: str) -> str:
+        if response_language == "lo":
+            return (
+                "ຄຳຕອບນີ້ເປັນຂໍ້ມູນກົດໝາຍທົ່ວໄປເທົ່ານັ້ນ "
+                "ບໍ່ແທນຄຳປຶກສາຈາກທະນາຍຄວາມທີ່ໄດ້ກວດຂໍ້ເທັດຈິງ ເອກະສານ ແລະຫຼັກຖານຄົບຖ້ວນ."
+            )
+        if response_language == "th":
+            return (
+                "คำตอบนี้เป็นข้อมูลกฎหมายทั่วไปเท่านั้น ไม่แทนคำปรึกษาจากทนายความ"
+                "ที่ได้ตรวจข้อเท็จจริง เอกสาร และหลักฐานครบถ้วน."
+            )
+        return (
+            "This response is general legal information only and does not replace advice "
+            "from a licensed lawyer who has reviewed the full facts, documents, and evidence."
+        )

@@ -84,3 +84,45 @@ def needs_multilingual_embedding(text: str, jurisdiction: str | None = None) -> 
     if canonical in {"laos", "thailand"}:
         return True
     return contains_lao_script(text) or contains_thai_script(text)
+
+
+def infer_response_language(text: str, explicit: str | None = None) -> str:
+    if explicit:
+        normalized = explicit.strip().casefold().replace("_", "-")
+        if normalized in {"lo", "la", "lao", "laos", "lao-pdr"}:
+            return "lo"
+        if normalized in {"th", "thai", "thailand"}:
+            return "th"
+        if normalized in {"en", "eng", "english"}:
+            return "en"
+
+    if contains_lao_script(text):
+        return "lo"
+    if contains_thai_script(text):
+        return "th"
+    return "en"
+
+
+def response_language_name(language: str | None) -> str:
+    if language == "lo":
+        return "Lao"
+    if language == "th":
+        return "Thai"
+    return "English"
+
+
+def response_language_instruction(language: str | None) -> str:
+    if language == "lo":
+        return (
+            "Respond in Lao language (ພາສາລາວ). All user-facing JSON string values "
+            "must be Lao, except law names, section numbers, case numbers, URLs, and exact citations."
+        )
+    if language == "th":
+        return (
+            "Respond in Thai language. All user-facing JSON string values must be Thai, "
+            "except law names, section numbers, case numbers, URLs, and exact citations."
+        )
+    return (
+        "Respond in English. Keep law names, section numbers, case numbers, URLs, "
+        "and exact citations as shown in the retrieved context."
+    )

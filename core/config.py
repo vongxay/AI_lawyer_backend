@@ -50,6 +50,12 @@ class Settings(BaseSettings):
     jwt_access_ttl_seconds: int = 3600          # 1 hour
     jwt_refresh_ttl_seconds: int = 604_800      # 7 days
     rate_limit_per_minute: int = 20
+    rate_limit_enabled: bool = True
+    rate_limit_query_per_minute: int = 10
+    rate_limit_stream_per_minute: int = 30
+    rate_limit_document_per_minute: int = 5
+    rate_limit_evidence_per_minute: int = 5
+    rate_limit_backend: Literal["auto", "redis", "memory"] = "auto"
 
     # ── Monitoring & Observability ─────────────────────────────────────────────
     sentry_dsn: str | None = None

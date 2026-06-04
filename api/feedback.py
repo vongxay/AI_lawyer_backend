@@ -27,14 +27,17 @@ async def submit_feedback(
     supabase = await get_supabase()
 
     entry = {
+        "tenant_id": user.tenant_id,
         "session_id": payload.session_id,
+        "message_id": payload.message_id,
         "user_id": user.sub,
         "rating": payload.rating,
+        "feedback_type": "positive" if payload.rating >= 4 else "negative" if payload.rating <= 2 else "neutral",
         "comment": payload.comment,
         "corrected_answer": payload.corrected_answer,
     }
 
-    if supabase:
+    if supabase and payload.message_id:
         try:
             await supabase.table("feedback").insert(entry).execute()
         except Exception as exc:

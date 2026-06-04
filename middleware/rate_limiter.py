@@ -11,6 +11,7 @@ Features:
 """
 from __future__ import annotations
 
+import hashlib
 import time
 from collections import defaultdict
 from dataclasses import dataclass
@@ -94,20 +95,26 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
 
         # Endpoint-specific limits (override default)
         self._endpoint_limits: dict[str, int] = {
-            "/api/v1/legal/query": 10,      # More restrictive for expensive queries
-            "/api/v1/legal/query/stream": 10,
-            "/api/v1/documents/analyze": 5,  # Very restrictive - expensive operation
-            "/api/v1/evidence/analyze": 5,
+            "/api/v1/legal/query": self._settings.rate_limit_query_per_minute,
+            "/api/v1/legal/query/stream": self._settings.rate_limit_stream_per_minute,
+            "/api/v1/documents/analyze": self._settings.rate_limit_document_per_minute,
+            "/api/v1/evidence/analyze": self._settings.rate_limit_evidence_per_minute,
         }
 
     async def dispatch(self, request: Request, call_next: Callable):
         # Skip rate limiting for health checks and docs
-        if request.url.path in ["/health", "/", "/docs", "/redoc", "/openapi.json"]:
+        if (
+            not self._settings.rate_limit_enabled
+            or request.method == "OPTIONS"
+            or request.url.path in ["/health", "/", "/docs", "/redoc", "/openapi.json"]
+        ):
             return await call_next(request)
 
         # Get client identifier
         client_id = await self._get_client_id(request)
         endpoint = request.url.path
+        scope = self._rate_limit_scope(endpoint)
+        rate_key = f"{client_id}:{scope}"
 
         # Get rate limit for this endpoint
         limit = self._endpoint_limits.get(endpoint, self._default_limit)
@@ -115,7 +122,7 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
             limit = max(limit, 30 if endpoint.endswith("/upload") else 120)
 
         # Check rate limit
-        result = await self._check_rate_limit(client_id, limit)
+        result = await self._check_rate_limit(rate_key, limit)
 
         # Add rate limit headers to response
         headers = {
@@ -129,6 +136,7 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
                 "rate_limit.exceeded",
                 client_id=client_id,
                 endpoint=endpoint,
+                scope=scope,
                 limit=limit,
             )
             return JSONResponse(
@@ -154,6 +162,13 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         if hasattr(request.state, "user") and request.state.user:
             return f"user:{request.state.user.sub}"
 
+        authorization = request.headers.get("Authorization", "")
+        if authorization.lower().startswith("bearer "):
+            token = authorization[7:].strip()
+            if token:
+                digest = hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
+                return f"token:{digest}"
+
         # Fall back to IP address
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
@@ -163,6 +178,16 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
 
         return f"ip:{ip}"
 
+    def _rate_limit_scope(self, endpoint: str) -> str:
+        """Group dynamic URLs so unrelated endpoints don't share one bucket."""
+        if endpoint.startswith("/api/v1/legal/sessions"):
+            return "/api/v1/legal/sessions"
+        if endpoint.startswith("/api/v1/memory/case/"):
+            return "/api/v1/memory/case"
+        if endpoint.startswith("/api/v1/admin/"):
+            return "/api/v1/admin"
+        return endpoint
+
     async def _check_rate_limit(self, key: str, limit: int) -> RateLimitResult:
         """Check rate limit using Redis or fallback."""
         await self._ensure_redis()
@@ -171,7 +196,10 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
             try:
                 return await self._redis_check(key, limit)
             except Exception as exc:
-                log.warning("rate_limit.redis.failed", error=str(exc))
+                if self._settings.redis_required:
+                    log.warning("rate_limit.redis.failed", error=str(exc))
+                else:
+                    log.info("rate_limit.redis.fallback_memory", error=str(exc))
                 self._redis = None
                 self._redis_probe_after = time.time() + self._redis_retry_cooldown
                 # Fall through to in-memory
@@ -179,6 +207,14 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         return await self._in_memory.check(key, limit, self._window)
 
     async def _ensure_redis(self) -> None:
+        if self._settings.rate_limit_backend == "memory":
+            return
+        if (
+            self._settings.rate_limit_backend == "auto"
+            and self._settings.app_env == "development"
+            and not self._settings.redis_required
+        ):
+            return
         if self._redis or time.time() < self._redis_probe_after:
             return
 
@@ -191,7 +227,10 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
             log.info("rate_limit.redis.enabled")
         except Exception as exc:
             self._redis_probe_after = time.time() + self._redis_retry_cooldown
-            log.warning("rate_limit.redis.unavailable", error=str(exc))
+            if self._settings.redis_required:
+                log.warning("rate_limit.redis.unavailable", error=str(exc))
+            else:
+                log.info("rate_limit.redis.unavailable_optional", error=str(exc))
 
     async def _redis_check(self, key: str, limit: int) -> RateLimitResult:
         """Redis-based rate limiting using sliding window."""
