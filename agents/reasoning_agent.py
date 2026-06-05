@@ -142,6 +142,32 @@ query_type={query_type}
 {question}
 """
 
+_FOCUSED_STATUTORY_SYSTEM_PROMPT = """
+You are a senior Lao legal advisor. Answer a statutory question using ONLY the single statutory excerpt provided by the system.
+
+Rules:
+1. Do not use outside knowledge.
+2. If the excerpt does not answer the question, say the retrieved article is incomplete or insufficient.
+3. Keep the answer practical and professional.
+4. Return compact JSON only, with this shape:
+{"recommendation":"direct answer","analysis":"short legal explanation grounded in the excerpt","action_steps":["step or condition 1"],"confidence":0.85}
+5. Do not add markdown, comments, or text outside JSON.
+"""
+
+_FOCUSED_STATUTORY_TEMPLATE = """
+LAW TITLE:
+{title}
+
+SECTION:
+{section}
+
+STATUTORY EXCERPT:
+{statute_text}
+
+USER QUESTION:
+{question}
+"""
+
 
 class IracReasoningAgent(BaseAgent):
     name = "reasoning"
@@ -177,6 +203,18 @@ class IracReasoningAgent(BaseAgent):
             parsed = self._insufficient_context_response(question, missing_case_facts_reason)
             parsed["_tokens"] = 0
             return parsed
+
+        focused_response = await self._focused_statutory_response(
+            question=question,
+            research=research,
+            language=language,
+            query_mode=query_mode,
+            response_style=response_style,
+            query_type=query_type,
+        )
+        if focused_response:
+            log.info("reasoning.focused_statutory_response", question_type=query_type)
+            return focused_response
 
         user_message = _CONTEXT_TEMPLATE.format(
             retrieved_documents=context["docs"],
@@ -329,8 +367,6 @@ class IracReasoningAgent(BaseAgent):
             if value not in seen:
                 seen.add(value)
                 targets.append(value)
-        if not targets and self._is_land_use_right_protection_question(question):
-            targets.append("5")
         return targets
 
     def _matches_section(self, text: str, target: str) -> bool:
@@ -340,34 +376,267 @@ class IracReasoningAgent(BaseAgent):
         )
         return any(re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE) for pattern in patterns)
 
-    def _is_land_use_right_protection_question(self, question: str) -> bool:
-        lowered = question.casefold()
-        has_land = LAO_LAND in lowered or "land" in lowered
-        has_right = LAO_RIGHT in lowered or "right" in lowered
-        has_use_right = any(
-            marker in lowered
-            for marker in (
-                LAO_LAND_USE_RIGHT,
-                LAO_LAND_USE_RIGHT_ALT,
-                LAO_LAND_USE_RIGHT_OCR,
-                "land use right",
-                "use right",
+    async def _focused_statutory_response(
+        self,
+        *,
+        question: str,
+        research: dict | None,
+        language: str,
+        query_mode: str | None,
+        response_style: str | None,
+        query_type: str | None,
+    ) -> dict[str, Any] | None:
+        if query_type not in {None, "legal_question"}:
+            return None
+        if query_mode not in {None, "general"}:
+            return None
+        if response_style not in {None, "plain", "irac"}:
+            return None
+        if not research or not research.get("retrieved_documents"):
+            return None
+
+        candidate = self._focused_statutory_candidate(question, research)
+        if not candidate:
+            return None
+
+        settings = get_settings()
+        try:
+            result = await self._call_llm(
+                model=settings.model_reasoning,
+                system=f"{_FOCUSED_STATUTORY_SYSTEM_PROMPT}\n\nLANGUAGE OVERRIDE:\n{response_language_instruction(language)}",
+                user_message=_FOCUSED_STATUTORY_TEMPLATE.format(
+                    title=candidate["title"],
+                    section=candidate["section"],
+                    statute_text=candidate["statute_text"],
+                    question=question,
+                ),
+                max_tokens=min(settings.llm_max_tokens_reasoning, 900),
             )
-        )
-        has_protection_intent = any(
-            marker in lowered
-            for marker in (
-                LAO_PROTECTION,
-                "\u0e9b\u0ebb\u0e81\u0e9b\u0eb1\u0e81",
-                "\u0ec4\u0e94\u0ec9\u0eae\u0eb1\u0e9a\u0e81\u0eb2\u0e99\u0e9b\u0ebb\u0e81",
-                "\u0eaa\u0eb4\u0e94\u0ec3\u0e94",
-                "\u0ec3\u0e94\u0ec1\u0e94\u0ec8",
-                "protected",
-                "protection",
-                "which rights",
+            payload = self._parse_focused_statutory_payload(result.text)
+            response = self._build_focused_statutory_irac(
+                question=question,
+                candidate=candidate,
+                payload=payload,
             )
-        )
-        return has_land and has_right and (has_use_right or has_protection_intent) and has_protection_intent
+            response["_tokens"] = result.total_tokens
+            return response
+        except Exception as exc:  # noqa: BLE001
+            log.warning("reasoning.focused_statutory_llm_failed", error=str(exc))
+            response = self._build_focused_statutory_irac(
+                question=question,
+                candidate=candidate,
+                payload=self._fallback_focused_statutory_payload(candidate, language),
+            )
+            response["_tokens"] = 0
+            return response
+
+    def _focused_statutory_candidate(self, question: str, research: dict[str, Any]) -> dict[str, Any] | None:
+        targets = self._target_sections_from_research(question, research)
+        if not targets:
+            return None
+
+        chunks = self._prioritise_chunks_by_targets(research["retrieved_documents"], targets)
+        if not chunks:
+            return None
+
+        top_chunk = chunks[0]
+        section = str(top_chunk.get("section") or top_chunk.get("section_ref") or "").strip()
+        content = str(top_chunk.get("content") or "")
+        matched_article = self._first_matching_target(section, content, targets)
+        if not matched_article:
+            return None
+
+        title = str(top_chunk.get("title") or "Retrieved legal source").strip()
+        statute_text = self._clean_statute_excerpt(content, max_chars=1600)
+        return {
+            "chunk": top_chunk,
+            "title": title,
+            "section": section or f"{LAO_ARTICLE} {matched_article}",
+            "article": matched_article,
+            "statute_text": statute_text,
+            "citation_ref": f"{title} {section or f'{LAO_ARTICLE} {matched_article}'}".strip(),
+        }
+
+    def _parse_focused_statutory_payload(self, text: str) -> dict[str, Any]:
+        clean = self._extract_json_payload(text)
+        payload = json.loads(clean)
+        if not isinstance(payload, dict):
+            raise ValueError("Focused statutory answer must be a JSON object")
+
+        if "irac" in payload and isinstance(payload.get("irac"), dict):
+            irac = payload["irac"]
+            conclusion = irac.get("conclusion") if isinstance(irac.get("conclusion"), dict) else {}
+            application = irac.get("application") if isinstance(irac.get("application"), dict) else {}
+            payload = {
+                "recommendation": conclusion.get("recommendation"),
+                "analysis": application.get("analysis"),
+                "action_steps": conclusion.get("action_steps"),
+                "confidence": payload.get("confidence"),
+            }
+
+        recommendation = str(payload.get("recommendation") or "").strip()
+        analysis = str(payload.get("analysis") or "").strip()
+        action_steps = [
+            str(step).strip()
+            for step in (payload.get("action_steps") if isinstance(payload.get("action_steps"), list) else [])
+            if str(step).strip()
+        ][:8]
+        confidence = self._bounded_confidence(payload.get("confidence"), default=0.84)
+        if not recommendation and not analysis:
+            raise ValueError("Focused statutory answer is empty")
+        return {
+            "recommendation": recommendation or analysis,
+            "analysis": analysis or recommendation,
+            "action_steps": action_steps,
+            "confidence": confidence,
+        }
+
+    def _build_focused_statutory_irac(
+        self,
+        *,
+        question: str,
+        candidate: dict[str, Any],
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        confidence = self._bounded_confidence(payload.get("confidence"), default=0.84)
+        return {
+            "irac": {
+                "issue": {"primary": question, "secondary": []},
+                "rule": {
+                    "statutes": [
+                        {
+                            "name": candidate["title"],
+                            "section": candidate["section"],
+                            "text": self._clean_statute_excerpt(candidate["statute_text"], max_chars=500),
+                            "status": "ACTIVE",
+                            "year": None,
+                        }
+                    ],
+                    "precedents": [],
+                },
+                "application": {
+                    "analysis": str(payload.get("analysis") or "").strip(),
+                    "strengths": [],
+                    "weaknesses": [],
+                    "counter_args": [],
+                    "rebuttals": [],
+                },
+                "conclusion": {
+                    "recommendation": str(payload.get("recommendation") or "").strip(),
+                    "action_steps": [
+                        str(step).strip()
+                        for step in (payload.get("action_steps") if isinstance(payload.get("action_steps"), list) else [])
+                        if str(step).strip()
+                    ][:8],
+                    "risk_level": "LOW",
+                    "win_probability": 0.0,
+                    "settlement_note": None,
+                },
+            },
+            "citations": [
+                {
+                    "ref": candidate["citation_ref"],
+                    "status": "UNVERIFIED",
+                    "note": "Grounded in the retrieved statutory section.",
+                }
+            ],
+            "confidence": confidence,
+            "_confidence": confidence,
+            "reasoning_notes": "focused statutory answer from retrieved section",
+        }
+
+    def _fallback_focused_statutory_payload(self, candidate: dict[str, Any], language: str) -> dict[str, Any]:
+        title = candidate["title"]
+        section = candidate["section"]
+        excerpt = self._clean_statute_excerpt(candidate["statute_text"], max_chars=700)
+        if language == "lo":
+            recommendation = f"ອີງຕາມ {title} {section}, ຄຳຕອບຕ້ອງອີງໃສ່ຂໍ້ຄວາມຂອງມາດຕານີ້."
+            analysis = f"ຂໍ້ຄວາມທີ່ຄົ້ນພົບລະບຸວ່າ: {excerpt}"
+            action_steps = [
+                "ກວດສອບຂໍ້ຄວາມມາດຕາສະບັບເຕັມກ່ອນນຳໄປໃຊ້ກັບກໍລະນີຈິງ.",
+                "ຖ້າມີຂໍ້ເທັດຈິງສະເພາະ, ໃຫ້ນຳມາປຽບທຽບກັບເງື່ອນໄຂໃນມາດຕານີ້.",
+            ]
+        elif language == "th":
+            recommendation = f"อ้างอิง {title} {section} คำตอบต้องยึดตามข้อความของมาตรานี้"
+            analysis = f"ข้อความที่ค้นพบระบุว่า: {excerpt}"
+            action_steps = [
+                "ตรวจสอบข้อความมาตราฉบับเต็มก่อนนำไปใช้กับข้อเท็จจริงจริง",
+                "หากมีข้อเท็จจริงเฉพาะ ให้นำมาเทียบกับเงื่อนไขในมาตรานี้",
+            ]
+        else:
+            recommendation = f"Based on {title} {section}, the answer must be grounded in this retrieved statutory text."
+            analysis = f"The retrieved excerpt states: {excerpt}"
+            action_steps = [
+                "Check the full official article before applying it to a real matter.",
+                "Compare any specific facts against the conditions in this article.",
+            ]
+        return {
+            "recommendation": recommendation,
+            "analysis": analysis,
+            "action_steps": action_steps,
+            "confidence": 0.72,
+        }
+
+    def _bounded_confidence(self, value: Any, *, default: float) -> float:
+        try:
+            confidence = float(value)
+        except (TypeError, ValueError):
+            confidence = default
+        return max(0.0, min(confidence, 0.92))
+
+    def _target_sections_from_research(self, question: str, research: dict[str, Any]) -> list[str]:
+        targets = self._section_numbers_from_question(question)
+        analysis = research.get("query_analysis") if isinstance(research.get("query_analysis"), dict) else {}
+        hints = analysis.get("authority_hints") if isinstance(analysis.get("authority_hints"), list) else []
+        for hint in hints:
+            if not isinstance(hint, dict):
+                continue
+            article = str(hint.get("article") or "").strip()
+            if article:
+                targets.append(article)
+
+        unique: list[str] = []
+        seen: set[str] = set()
+        for target in targets:
+            match = re.search(r"0*([0-9]{1,4})", str(target))
+            if not match:
+                continue
+            value = match.group(1)
+            if value not in seen:
+                seen.add(value)
+                unique.append(value)
+        return unique[:5]
+
+    def _prioritise_chunks_by_targets(
+        self,
+        chunks: list[dict[str, Any]],
+        targets: list[str],
+    ) -> list[dict[str, Any]]:
+        def target_match(chunk: dict[str, Any]) -> bool:
+            haystack = f"{chunk.get('section') or chunk.get('section_ref') or ''}\n{str(chunk.get('content') or '')[:260]}"
+            return any(self._matches_section(haystack, target) for target in targets)
+
+        def score(chunk: dict[str, Any]) -> float:
+            for key in ("_rerank_score", "final_score", "score"):
+                try:
+                    return float(chunk.get(key))
+                except (TypeError, ValueError):
+                    continue
+            return 0.0
+
+        sorted_chunks = sorted(chunks, key=lambda chunk: (target_match(chunk), score(chunk)), reverse=True)
+        return [chunk for chunk in sorted_chunks if target_match(chunk)]
+
+    def _first_matching_target(self, section: str, content: str, targets: list[str]) -> str | None:
+        haystack = f"{section}\n{content[:260]}"
+        for target in targets:
+            if self._matches_section(haystack, target):
+                return target
+        return None
+
+    def _clean_statute_excerpt(self, text: str, *, max_chars: int) -> str:
+        clean = re.sub(r"\s+", " ", text or "").strip()
+        return clean[:max_chars]
 
     def _missing_case_facts_reason(self, question: str, memory: dict[str, Any] | None = None) -> str | None:
         settings = get_settings()

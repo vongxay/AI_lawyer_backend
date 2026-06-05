@@ -35,3 +35,29 @@ async def test_classifier_keeps_land_right_question_legal():
     )
 
     assert result == "legal_question"
+
+
+@pytest.mark.asyncio
+async def test_classifier_routes_under_specified_fraud_case_to_clarification():
+    classifier = QueryClassifier()
+
+    result = await classifier.classify("\u0e1c\u0e21\u0e42\u0e14\u0e19\u0e42\u0e01\u0e07\u0e40\u0e07\u0e34\u0e19\u0e15\u0e49\u0e2d\u0e07\u0e17\u0e33\u0e22\u0e31\u0e07\u0e44\u0e07")
+    route = classifier.route("\u0e1c\u0e21\u0e42\u0e14\u0e19\u0e42\u0e01\u0e07\u0e40\u0e07\u0e34\u0e19\u0e15\u0e49\u0e2d\u0e07\u0e17\u0e33\u0e22\u0e31\u0e07\u0e44\u0e07")
+
+    assert result == "clarification"
+    assert route.needs_clarification is True
+    assert route.should_use_rag is False
+    assert route.clarification_questions
+
+
+def test_classifier_structured_route_for_uploaded_document():
+    classifier = QueryClassifier()
+
+    route = classifier.route(
+        "\u0e0a\u0e48\u0e27\u0e22\u0e15\u0e23\u0e27\u0e08\u0e2a\u0e31\u0e0d\u0e0d\u0e32",
+        has_document=True,
+    )
+
+    assert route.query_type == "document_review"
+    assert route.should_use_rag is True
+    assert "document_analysis" in route.recommended_tools

@@ -13,6 +13,13 @@ from typing import TYPE_CHECKING, Any
 
 from core.jurisdiction import canonical_jurisdiction, contains_lao_script, contains_thai_script
 from core.logging import get_logger
+from rag.legal_text_matching import (
+    extract_lao_legal_terms,
+    normalise_search_text,
+    table_of_contents_penalty,
+    term_matches_text,
+    unique_terms,
+)
 
 if TYPE_CHECKING:
     from supabase import AsyncClient  # pragma: no cover
@@ -121,7 +128,7 @@ class Retriever:
 
     def _should_supplement_keyword(self, query: str) -> bool:
         terms = self._keyword_terms(query)
-        return bool(self._article_targets_from_terms(terms)) or self._is_land_use_right_protection_query(query.casefold())
+        return bool(self._article_targets_from_terms(terms))
 
     def _merge_rows(
         self,
@@ -201,13 +208,13 @@ class Retriever:
         jurisdiction: str | None,
         top_k: int,
     ) -> list[dict[str, Any]]:
-        terms = self._keyword_terms(query)
+        terms = self._rank_keyword_terms(self._keyword_terms(query))
         if not terms:
             return []
 
         rows: list[dict[str, Any]] = []
         seen: set[str] = set()
-        for term in terms[:10]:
+        for term in terms[:18]:
             safe_term = self._safe_ilike_term(term)
             if not safe_term:
                 continue
@@ -256,22 +263,14 @@ class Retriever:
             if len(cleaned) >= 2:
                 terms.append(cleaned)
 
-        if self._is_land_use_right_protection_query(lowered):
+        terms.extend(extract_lao_legal_terms(query))
+
+        for article in self._article_targets_from_text(lowered):
             terms.extend([
-                f"{LAO_ARTICLE} 5",
-                "Article 5",
-                LAO_PROTECTION,
-                f"{LAO_PROTECTION}{LAO_RIGHT}",
-                LAO_LAND_USE_RIGHT,
-                LAO_LAND_USE_RIGHT_ALT,
-                LAO_LAND_USE_RIGHT_OCR,
-                LAO_GUARD_RIGHT,
-                LAO_USE_RIGHT,
-                LAO_BENEFIT_RIGHT,
-                LAO_BENEFITS,
-                LAO_TRANSFER_RIGHT,
-                LAO_INHERIT_RIGHT,
-                "land use right protection",
+                f"{LAO_ARTICLE} {article}",
+                f"{THAI_ARTICLE} {article}",
+                f"Article {article}",
+                f"Section {article}",
             ])
 
         if contains_lao_script(query):
@@ -322,6 +321,90 @@ class Retriever:
 
         synonym_checks = [
             (
+                "\u0e99\u0ec9\u0eb3",
+                [
+                    "\u0e99\u0ec9\u0eb3",
+                    "\u0e99\u0ecd\u0ec9\u0eb2",
+                    "\u0e99\u0eb2\u0ecd",
+                    "\u0e99\u0eb2\u0ec9",
+                    "\u0e9a\u0ecd\u0ea5\u0eb4\u0ec0\u0ea7\u0e99\u0e99\u0eb2\u0ecd",
+                    "\u0e9a\u0ecd\u0ea5\u0eb4\u0ec0\u0ea7\u0e99\u0e99\u0eb2\u0ec9",
+                    "\u0ec1\u0eab\u0ebc\u0ec8\u0e87\u0e99\u0eb2\u0ecd",
+                    "\u0e97\u0eb2\u0e87\u0e99\u0eb2\u0ecd",
+                    "water",
+                    "water area",
+                ],
+            ),
+            (
+                "\u0e99\u0ecd\u0ec9\u0eb2",
+                [
+                    "\u0e99\u0ec9\u0eb3",
+                    "\u0e99\u0ecd\u0ec9\u0eb2",
+                    "\u0e99\u0eb2\u0ecd",
+                    "\u0e99\u0eb2\u0ec9",
+                    "\u0e9a\u0ecd\u0ea5\u0eb4\u0ec0\u0ea7\u0e99\u0e99\u0eb2\u0ecd",
+                    "\u0e9a\u0ecd\u0ea5\u0eb4\u0ec0\u0ea7\u0e99\u0e99\u0eb2\u0ec9",
+                    "water",
+                    "water area",
+                ],
+            ),
+            (
+                "\u0ec0\u0e82\u0e94",
+                [
+                    "\u0ec0\u0e82\u0e94",
+                    "\u0ec1\u0e9a\u0ec8\u0e87",
+                    "\u0e88\u0eb1\u0e94\u0ec1\u0e9a\u0ec8\u0e87",
+                    "\u0e9b\u0eb0\u0ec0\u0e9e\u0e94",
+                    "\u0ec0\u0e82\u0e94\u0e97\u0ebb\u0ec8\u0e87",
+                    "\u0ec0\u0e82\u0e94\u0e9e\u0eb9",
+                    "zone",
+                    "category",
+                    "land type",
+                ],
+            ),
+            (
+                "\u0e9b\u0eb0\u0ec0\u0e9e\u0e94",
+                [
+                    "\u0e9b\u0eb0\u0ec0\u0e9e\u0e94",
+                    "\u0ec0\u0e82\u0e94",
+                    "\u0ec1\u0e9a\u0ec8\u0e87",
+                    "\u0e88\u0eb1\u0e94\u0ec1\u0e9a\u0ec8\u0e87",
+                    "\u0e9b\u0eb0\u0ec0\u0e9e\u0e94\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99",
+                    "category",
+                    "land type",
+                    "zone",
+                ],
+            ),
+            (
+                "\u0e9b\u0ec8\u0ebd\u0e99",
+                [
+                    "\u0e9b\u0ec8\u0ebd\u0e99",
+                    "\u0e9b\u0ebd\u0e99",
+                    "\u0e9b\u0eb8\u0ec8\u0ebd\u0e99",
+                    "\u0e97\u0eb1\u0e99\u0e9b\u0ebd\u0e99",
+                    "\u0e97\u0eb1\u0e99\u0e9b\u0eb8\u0ec8\u0ebd\u0e99",
+                    "\u0ead\u0eb0\u0e99\u0eb8\u0ea1\u0eb1\u0e94",
+                    "\u0e9c\u0ebb\u0e99\u0e81\u0eb0\u0e97\u0ebb\u0e9a",
+                    "\u0eaa\u0eb4\u0e87\u0ec1\u0ea7\u0e94",
+                    "\u0e88\u0eb2\u0ecd\u0ec0\u0e9b\u0eb1\u0e99",
+                    "change land type",
+                    "approval",
+                    "environmental impact",
+                ],
+            ),
+            (
+                "\u0ead\u0eb0\u0e99\u0eb8\u0ea1\u0eb1\u0e94",
+                [
+                    "\u0ead\u0eb0\u0e99\u0eb8\u0ea1\u0eb1\u0e94",
+                    "\u0e9b\u0ec8\u0ebd\u0e99",
+                    "\u0e9b\u0ebd\u0e99",
+                    "\u0e9b\u0eb8\u0ec8\u0ebd\u0e99",
+                    "\u0e9c\u0ebb\u0e99\u0e81\u0eb0\u0e97\u0ebb\u0e9a",
+                    "\u0eaa\u0eb4\u0e87\u0ec1\u0ea7\u0e94",
+                    "approval",
+                ],
+            ),
+            (
                 "\u0ec0\u0e8a\u0ebb\u0ec8\u0eb2",
                 [
                     "\u0ec0\u0e8a\u0ebb\u0ec8\u0eb2",
@@ -356,42 +439,38 @@ class Retriever:
             if marker in lowered:
                 terms.extend(synonyms)
 
-        unique: list[str] = []
-        seen: set[str] = set()
-        for term in terms:
-            value = term.strip()
-            if value and value not in seen:
-                seen.add(value)
-                unique.append(value)
-        return unique
+        return unique_terms(terms)
 
-    def _is_land_use_right_protection_query(self, lowered: str) -> bool:
-        has_land = LAO_LAND in lowered or "land" in lowered
-        has_right = LAO_RIGHT in lowered or "right" in lowered
-        has_use_right = any(
-            marker in lowered
-            for marker in (
-                LAO_LAND_USE_RIGHT,
-                LAO_LAND_USE_RIGHT_ALT,
-                LAO_LAND_USE_RIGHT_OCR,
-                "land use right",
-                "use right",
-            )
-        )
-        has_protection_intent = any(
-            marker in lowered
-            for marker in (
-                LAO_PROTECTION,
-                "\u0e9b\u0ebb\u0e81\u0e9b\u0eb1\u0e81",
-                "\u0ec4\u0e94\u0ec9\u0eae\u0eb1\u0e9a\u0e81\u0eb2\u0e99\u0e9b\u0ebb\u0e81",
-                "\u0eaa\u0eb4\u0e94\u0ec3\u0e94",
-                "\u0ec3\u0e94\u0ec1\u0e94\u0ec8",
-                "protected",
-                "protection",
-                "which rights",
-            )
-        )
-        return has_land and has_right and (has_use_right or has_protection_intent) and has_protection_intent
+    def _rank_keyword_terms(self, terms: list[str]) -> list[str]:
+        article_targets = set(self._article_targets_from_terms(terms))
+        generic_terms = {
+            "\u0e81\u0ebb\u0e94\u0edd\u0eb2\u0e8d",
+            "\u0ea1\u0eb2\u0e94\u0e95\u0eb2",
+            "\u0e94\u0eb3\u0ea5\u0eb1\u0e94",
+            "\u0e84\u0eb3\u0eaa\u0eb1\u0ec8\u0e87",
+            "\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99",
+            "land",
+            "property",
+            "ownership",
+        }
+
+        def priority(term: str) -> tuple[int, int]:
+            value = term.casefold().strip()
+            if any(self._matches_article_term(value, target) for target in article_targets):
+                return (0, -len(value))
+            if value in generic_terms:
+                return (4, -len(value))
+            if not value.isascii() and len(value) >= 4:
+                return (1, -len(value))
+            if not value.isascii():
+                return (2, -len(value))
+            return (3, -len(value))
+
+        return sorted(terms, key=priority)
+
+    def _matches_article_term(self, term: str, target: str) -> bool:
+        pattern = rf"(?:{LAO_ARTICLE}|{THAI_ARTICLE}|article|art\.?|section|sec\.?)\s*0*{re.escape(target)}(?:\D|$)"
+        return bool(re.search(pattern, term, flags=re.IGNORECASE))
 
     def _safe_ilike_term(self, term: str) -> str | None:
         value = re.sub(r"[\x00\r\n,(){}\[\]_%]", " ", str(term)).strip()
@@ -412,6 +491,17 @@ class Retriever:
                 metadata.get("article"),
             )
         ).casefold()
+        normalised_haystack = normalise_search_text(haystack)
+        heading = " ".join(
+            str(value or "")
+            for value in (
+                row.get("title"),
+                row.get("section_ref"),
+                str(row.get("content") or "")[:280],
+                metadata.get("article"),
+            )
+        ).casefold()
+        normalised_heading = normalise_search_text(heading)
         score = 0.0
         for article in self._article_targets_from_terms(terms):
             if self._row_matches_article(row, article):
@@ -421,17 +511,43 @@ class Retriever:
             if not value:
                 continue
 
-            if value.isascii():
-                if re.search(rf"\b{re.escape(value)}\b", haystack):
-                    score += 1.0
-            elif value in haystack:
-                score += 1.0
+            if term_matches_text(value, haystack, normalised_text=normalised_haystack):
+                weight = self._keyword_term_weight(value)
+                score += weight
+                if term_matches_text(value, heading, normalised_text=normalised_heading):
+                    score += min(0.75, weight * 0.55)
 
         if self._is_statute_like(row):
             score += 0.35
         if self._is_official_source(row):
             score += 0.45
+        score -= table_of_contents_penalty(haystack)
         return score
+
+    def _keyword_term_weight(self, term: str) -> float:
+        value = normalise_search_text(term)
+        generic_terms = {
+            "\u0e81\u0ebb\u0e94\u0edd\u0eb2\u0e8d",
+            "\u0ea1\u0eb2\u0e94\u0e95\u0eb2",
+            "\u0e94\u0eb3\u0ea5\u0eb1\u0e94",
+            "\u0e84\u0eb3\u0eaa\u0eb1\u0ec8\u0e87",
+            "\u0e97\u0eb5\u0e94\u0eb4\u0e99",
+            "law",
+            "land",
+            "property",
+            "ownership",
+        }
+        if value in generic_terms:
+            return 0.35
+        if value.isascii():
+            return 0.7 if len(value) >= 5 else 0.35
+        if len(value) >= 12:
+            return 1.6
+        if len(value) >= 7:
+            return 1.15
+        if len(value) >= 4:
+            return 0.8
+        return 0.35
 
     def _article_targets_from_terms(self, terms: list[str]) -> list[str]:
         targets: list[str] = []
@@ -443,6 +559,17 @@ class Retriever:
                 if target not in seen:
                     seen.add(target)
                     targets.append(target)
+        return targets[:5]
+
+    def _article_targets_from_text(self, text: str) -> list[str]:
+        pattern = rf"(?:{LAO_ARTICLE}|{THAI_ARTICLE}|article|art\.?|section|sec\.?)\s*0*([0-9]{{1,4}})"
+        targets: list[str] = []
+        seen: set[str] = set()
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+            target = match.group(1).lstrip("0") or "0"
+            if target not in seen:
+                seen.add(target)
+                targets.append(target)
         return targets[:5]
 
     def _row_matches_article(self, row: dict[str, Any], target: str) -> bool:

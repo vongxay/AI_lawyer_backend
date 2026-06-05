@@ -46,7 +46,7 @@ from core.logging import get_logger
 from memory.case_memory import CaseMemoryService
 from memory.session_memory import SessionMemoryService
 from orchestrator.agent_selector import AgentSelector
-from orchestrator.query_classifier import QueryClassifier, QueryType
+from orchestrator.query_classifier import QueryClassifier
 from services.audit_service import AuditService, ExpertQueueService
 from services.answer_guardrails import LegalAnswerGuardrails
 from services.cache_service import CacheService
@@ -140,8 +140,17 @@ class WorkflowManager:
         session_memory = await self._session_memory.get(sid, tenant_id=tenant_id, user_id=user_id)
         memory = self._merge_memory(case_memory, session_memory)
         contextual_question = self._contextual_question(clean_question, session_memory)
-        classified_type = await self._classifier.classify(clean_question)
+        intent_route = self._classifier.route(
+            clean_question,
+            query_mode=effective_mode,
+            has_document=bool(clean_doc_text),
+            has_evidence=bool(evidence_files),
+            memory=memory,
+        )
+        classified_type = intent_route.query_type
         query_type = self._query_type_for_mode(effective_mode, classified_type)
+        intent_route_data = intent_route.to_dict()
+        intent_route_data["effective_query_type"] = query_type
 
         cache_key = self._build_cache_key(
             question=clean_question,
@@ -193,11 +202,54 @@ class WorkflowManager:
                 response_language=response_language,
                 processing_ms=processing_ms,
                 session_id=sid,
+                intent_route=intent_route_data,
             )
             await self._audit.log_event(
                 user_id=user_id,
                 tenant_id=tenant_id,
                 agent="conversation",
+                query=clean_question,
+                confidence=response["confidence"],
+                agents_used=response["agents_used"],
+                processing_time_ms=processing_ms,
+                escalated=False,
+            )
+            if cacheable:
+                await self._cache.set(
+                    cache_key,
+                    {
+                        "response": response,
+                        "confidence": response["confidence"],
+                        "agents_used": response["agents_used"],
+                        "escalated_to_expert": False,
+                    },
+                    namespace="legal_qa",
+                )
+            return OrchestrationResult(
+                response=response,
+                confidence=response["confidence"],
+                agents_used=response["agents_used"],
+                processing_time_ms=processing_ms,
+                escalated_to_expert=False,
+                session_id=sid,
+            )
+
+        if query_type == "clarification" and clean_doc_text is None and not evidence_files:
+            processing_ms = int((time.perf_counter() - started) * 1000)
+            response = self._build_clarification_response(
+                question=clean_question,
+                memory=memory,
+                query_mode=effective_mode,
+                response_style="plain",
+                response_language=response_language,
+                processing_ms=processing_ms,
+                session_id=sid,
+                intent_route=intent_route_data,
+            )
+            await self._audit.log_event(
+                user_id=user_id,
+                tenant_id=tenant_id,
+                agent="intent_router",
                 query=clean_question,
                 confidence=response["confidence"],
                 agents_used=response["agents_used"],
@@ -423,6 +475,7 @@ class WorkflowManager:
             response_style=effective_style,
             session_id=sid,
             response_language=response_language,
+            intent_route=intent_route_data,
         )
 
         if cacheable and not escalated:
@@ -463,6 +516,7 @@ class WorkflowManager:
         response_language: str,
         processing_ms: int,
         session_id: str,
+        intent_route: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         answer = self._conversation_answer(question, memory, response_language)
         irac = self._empty_irac(question, answer)
@@ -488,6 +542,7 @@ class WorkflowManager:
                 "rag_used": False,
                 "llm_reasoning_used": False,
                 "reason": "non_legal_conversation",
+                "intent_route": intent_route or {},
                 "conversation_memory": {
                     "used": memory_used,
                     "message_count": memory.get("session_message_count", 0),
@@ -495,6 +550,78 @@ class WorkflowManager:
             },
             "disclaimer": self._conversation_disclaimer(response_language),
         }
+
+    def _build_clarification_response(
+        self,
+        *,
+        question: str,
+        memory: dict[str, Any],
+        query_mode: str,
+        response_style: str,
+        response_language: str,
+        processing_ms: int,
+        session_id: str,
+        intent_route: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        route = intent_route or {}
+        questions = [
+            str(item).strip()
+            for item in (route.get("clarification_questions") or [])
+            if str(item).strip()
+        ]
+        answer = self._clarification_answer(questions, response_language)
+        irac = self._empty_irac(question, answer)
+        memory_used = not memory.get("empty", True)
+        return {
+            "irac": irac,
+            "answer": answer,
+            "query_type": "clarification",
+            "query_mode": query_mode,
+            "response_style": response_style,
+            "response_language": response_language,
+            "session_id": session_id,
+            "citations": [],
+            "citations_verified": True,
+            "confidence": 0.88,
+            "agents_used": ["intent_router"],
+            "processing_time_ms": processing_ms,
+            "escalated_to_expert": False,
+            "risk": None,
+            "document": None,
+            "evidence": None,
+            "answer_quality": {
+                "rag_used": False,
+                "llm_reasoning_used": False,
+                "reason": "needs_clarification_before_legal_analysis",
+                "intent_route": route,
+                "conversation_memory": {
+                    "used": memory_used,
+                    "message_count": memory.get("session_message_count", 0),
+                },
+            },
+            "disclaimer": self._clarification_disclaimer(response_language),
+        }
+
+    def _clarification_answer(self, questions: list[str], response_language: str) -> str:
+        if response_language == "lo":
+            intro = "ເພື່ອໃຫ້ຕອບໄດ້ແມ່ນຍຳ ແລະ ບໍ່ສະຫຼຸບເກີນຂໍ້ເທັດຈິງ, ຂໍຂໍ້ມູນເພີ່ມກ່ອນ:"
+        elif response_language == "th":
+            intro = "เพื่อให้ตอบได้แม่นยำและไม่สรุปเกินข้อเท็จจริง ขอข้อมูลเพิ่มก่อนครับ:"
+        else:
+            intro = "To answer accurately without guessing beyond the facts, I need a few details first:"
+
+        if not questions:
+            questions = [
+                "What happened, when did it happen, and what outcome do you want?",
+            ]
+        return intro + "\n" + "\n".join(f"{index + 1}. {question}" for index, question in enumerate(questions))
+
+    def _clarification_disclaimer(self, response_language: str) -> str:
+        if response_language == "lo":
+            return "ຂໍ້ຄວາມນີ້ເປັນການຂໍຂໍ້ມູນເພີ່ມ ຍັງບໍ່ແມ່ນຄຳວິເຄາະກົດໝາຍຂັ້ນສຸດທ້າຍ."
+        if response_language == "th":
+            return "ข้อความนี้เป็นการขอข้อมูลเพิ่ม ยังไม่ใช่คำวิเคราะห์กฎหมายขั้นสุดท้าย"
+        return "This is a clarification request, not a final legal analysis."
 
     def _conversation_answer(self, question: str, memory: dict[str, Any], response_language: str) -> str:
         lowered = question.casefold()
@@ -665,7 +792,7 @@ class WorkflowManager:
         memory_hash: str | None,
     ) -> str:
         payload = {
-            "answer_pipeline_version": 5,
+            "answer_pipeline_version": 9,
             "question": question,
             "case_id": case_id,
             "jurisdiction": jurisdiction,
@@ -709,8 +836,8 @@ class WorkflowManager:
             return "action_plan"
         return "irac"
 
-    def _query_type_for_mode(self, query_mode: str, classified_type: QueryType) -> QueryType:
-        overrides: dict[str, QueryType] = {
+    def _query_type_for_mode(self, query_mode: str, classified_type: str) -> str:
+        overrides: dict[str, str] = {
             "serious_case": "case_strategy",
             "evidence": "evidence_analysis",
             "document": "document_review",
@@ -832,6 +959,7 @@ class WorkflowManager:
         response_style: str,
         session_id: str,
         response_language: str,
+        intent_route: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         irac = irac_data.get("irac", {})
         disclaimer = self._disclaimer_for_language(response_language)
@@ -854,6 +982,7 @@ class WorkflowManager:
             "evidence": evidence_data,
             "answer_quality": {
                 **quality,
+                "intent_route": intent_route or {},
                 "guardrails": guardrails,
                 "retrieval": (research_data or {}).get("retrieval", {}),
             },

@@ -29,6 +29,12 @@ LAO_BENEFIT_RIGHT = "\u0eaa\u0eb4\u0e94\u0ec4\u0e94\u0ec9\u0eae\u0eb1\u0e9a"
 LAO_BENEFITS = "\u0e9c\u0ebb\u0e99\u0e9b\u0eb0\u0ec2\u0eab\u0e8d\u0e94"
 LAO_TRANSFER_RIGHT = "\u0eaa\u0eb4\u0e94\u0ec2\u0ead\u0e99"
 LAO_INHERIT_RIGHT = "\u0eaa\u0eb4\u0e94\u0eaa\u0eb7\u0e9a\u0e97\u0ead\u0e94"
+LAO_WATER_AREA = "\u0e9a\u0ecd\u0ea5\u0eb4\u0ec0\u0ea7\u0e99\u0e99\u0ec9\u0eb3"
+LAO_WATER_AREA_OCR = "\u0e9a\u0ecd\u0ea5\u0eb4\u0ec0\u0ea7\u0e99\u0e99\u0eb2\u0ecd"
+LAO_CHANGE_LAND_TYPE = "\u0e9b\u0ec8\u0ebd\u0e99\u0e9b\u0eb0\u0ec0\u0e9e\u0e94"
+LAO_LAND_LEASE = "\u0ec0\u0e8a\u0ebb\u0ec8\u0eb2"
+LAO_LAND_CATEGORIES = "\u0e9b\u0eb0\u0ec0\u0e9e\u0e94"
+LAO_LAND_ZONE = "\u0ec0\u0e82\u0e94"
 THAI_LAND = "\u0e17\u0e35\u0e48\u0e14\u0e34\u0e19"
 THAI_LAW = "\u0e01\u0e0e\u0e2b\u0e21\u0e32\u0e22"
 THAI_ARTICLE = "\u0e21\u0e32\u0e15\u0e23\u0e32"
@@ -286,7 +292,7 @@ class LegalQueryAnalyzer:
         if issue_type != "analysis":
             issues.append(f"{issue_type} question")
         if self._is_land_use_right_protection_question(question):
-            issues.append("land-use-right protection under Law on Land Article 5")
+            issues.append("land-use-right protection issue")
         if requested_outcome:
             issues.append(f"requested outcome: {requested_outcome}")
         articles = self._article_refs(question)
@@ -349,33 +355,6 @@ class LegalQueryAnalyzer:
             ],
         }
         hints = list(base.get(practice_area, base["general"]))
-        if (
-            practice_area == "land"
-            and issue_type == "rights"
-            and self._is_land_use_right_protection_question(question)
-        ):
-            hints.insert(
-                0,
-                AuthorityHint(
-                    law_name="Law on Land",
-                    search_terms=[
-                        f"{LAO_ARTICLE} 5",
-                        "Article 5",
-                        LAO_PROTECTION,
-                        LAO_LAND_USE_RIGHT,
-                        LAO_LAND_USE_RIGHT_ALT,
-                        LAO_GUARD_RIGHT,
-                        LAO_USE_RIGHT,
-                        LAO_BENEFITS,
-                        LAO_TRANSFER_RIGHT,
-                        LAO_INHERIT_RIGHT,
-                    ],
-                    reason="Land-use-right protection is governed by Law on Land Article 5",
-                    jurisdiction="laos",
-                    article="5",
-                    priority=0,
-                ),
-            )
         for article in articles:
             hints.insert(
                 0,

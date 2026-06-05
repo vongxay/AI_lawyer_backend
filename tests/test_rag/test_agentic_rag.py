@@ -40,7 +40,7 @@ def test_legal_query_analyzer_builds_research_brief():
     assert "land ownership/use-right issue" in analysis.legal_issues
 
 
-def test_lao_land_use_right_protection_hints_article_five():
+def test_lao_land_use_right_protection_uses_general_land_authority_hints():
     analyzer = LegalQueryAnalyzer()
     planner = AgenticRetrievalPlanner()
 
@@ -54,11 +54,25 @@ def test_lao_land_use_right_protection_hints_article_five():
     assert analysis.practice_area == "land"
     assert analysis.issue_type == "rights"
     assert analysis.authority_hints[0].law_name == "Law on Land"
-    assert analysis.authority_hints[0].article == "5"
-    assert "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 5" in analysis.authority_hints[0].search_terms
-    assert any("Article 5" in phrase for phrase in analysis.search_phrases)
+    assert analysis.authority_hints[0].article is None
+    assert "land-use-right protection issue" in analysis.legal_issues
     assert plan[0].purpose == "authority_hint_1"
-    assert plan[0].metadata["article"] == "5"
+    assert plan[0].metadata["article"] is None
+
+
+def test_lao_land_topic_hints_do_not_hardcode_specific_articles():
+    analyzer = LegalQueryAnalyzer()
+    questions = [
+        "\u0e81\u0eb2\u0e99\u0e99\u0eb3\u0ec3\u0e8a\u0ec9\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99\u0e9a\u0ecd\u0ea5\u0eb4\u0ec0\u0ea7\u0e99\u0e99\u0ec9\u0eb3 \u0e95\u0ec9\u0ead\u0e87\u0eab\u0ec9\u0eb2\u0ea1\u0eaa\u0eb4\u0ec8\u0e87\u0ec3\u0e94\u0ec1\u0e94\u0ec8",
+        "\u0e81\u0eb2\u0e99\u0e9b\u0ec8\u0ebd\u0e99\u0e9b\u0eb0\u0ec0\u0e9e\u0e94\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99 \u0e95\u0ec9\u0ead\u0e87\u0ead\u0eb0\u0e99\u0eb8\u0ea1\u0eb1\u0e94\u0ec1\u0e99\u0ea7\u0ec3\u0e94",
+        "\u0e9e\u0ebb\u0e99\u0ea5\u0eb0\u0ec0\u0ea1\u0eb7\u0ead\u0e87\u0ea5\u0eb2\u0ea7\u0ec0\u0e8a\u0ebb\u0ec8\u0eb2\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99\u0e82\u0ead\u0e87\u0ea5\u0eb1\u0e94\u0ec4\u0e94\u0ec9\u0e88\u0eb1\u0e81\u0e9b\u0eb5",
+        "\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99\u0ec3\u0e99\u0ea5\u0eb2\u0ea7\u0ec1\u0e9a\u0ec8\u0e87\u0ec0\u0e9b\u0eb1\u0e99\u0ec0\u0e82\u0e94\u0ec1\u0ea5\u0eb0\u0e9b\u0eb0\u0ec0\u0e9e\u0e94\u0ec3\u0e94\u0ec1\u0e94\u0ec8",
+    ]
+
+    for question in questions:
+        analysis = analyzer.analyze(question)
+        assert analysis.authority_hints[0].law_name == "Law on Land"
+        assert analysis.authority_hints[0].article is None
 
 
 def test_planner_uses_query_analysis_authority_hints():
@@ -77,14 +91,25 @@ def test_planner_uses_query_analysis_authority_hints():
     assert "Law on Land" in authority_queries[0].query
 
 
-def test_retriever_terms_prioritise_land_use_right_article_five():
+def test_retriever_terms_do_not_hardcode_land_use_right_article():
     retriever = Retriever()
 
     terms = retriever._keyword_terms(LAND_RIGHT_PROTECTION_Q)
 
-    assert "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 5" in terms
-    assert "\u0eaa\u0eb4\u0e94\u0ec2\u0ead\u0e99" in terms
-    assert "\u0eaa\u0eb4\u0e94\u0eaa\u0eb7\u0e9a\u0e97\u0ead\u0e94" in terms
+    assert "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 5" not in terms
+    assert "Article 5" not in terms
+    assert "\u0eaa\u0eb4\u0e94\u0e99\u0eb3\u0ec3\u0e8a\u0ec9" in terms
+
+
+def test_retriever_extracts_article_targets_from_full_query_text():
+    retriever = Retriever()
+
+    terms = retriever._keyword_terms(
+        "\u0e81\u0ebb\u0e94\u0edd\u0eb2\u0e8d\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99 \u0ea1\u0eb2\u0e94\u0e95\u0eb2 25 \u0e9a\u0ecd\u0ea5\u0eb4\u0ec0\u0ea7\u0e99\u0e99\u0ec9\u0eb3"
+    )
+
+    assert "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 25" in terms
+    assert "Article 25" in terms
 
 
 def test_coverage_flags_missing_official_lao_source():
@@ -160,33 +185,28 @@ async def test_reranker_prefers_official_statute_over_generic_chunk():
 
 
 @pytest.mark.asyncio
-async def test_reranker_boosts_semantic_article_five_land_rights():
+async def test_reranker_boosts_any_explicit_article_target():
     reranker = Reranker()
 
     result = await reranker.rerank(
-        query=LAND_RIGHT_PROTECTION_Q,
+        query="What does Article 77 require?",
         chunks=[
             {
                 "type": "law",
-                "title": "Law on Land",
-                "section": "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 12",
-                "content": "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 12. other land content",
+                "title": "Example Law",
+                "section": "Article 12",
+                "content": "Article 12. Other rule.",
                 "final_score": 1.2,
             },
             {
                 "type": "law",
-                "title": "Law on Land",
-                "section": "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 5.",
-                "content": (
-                    "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 5. "
-                    "\u0e9b\u0ebb\u0e81\u0e9b\u0ec9\u0ead\u0e87\u0eaa\u0eb4\u0e94 "
-                    "\u0eaa\u0eb4\u0e94\u0ec2\u0ead\u0e99 "
-                    "\u0eaa\u0eb4\u0e94\u0eaa\u0eb7\u0e9a\u0e97\u0ead\u0e94"
-                ),
+                "title": "Example Law",
+                "section": "Article 77",
+                "content": "Article 77. Relevant rule.",
                 "final_score": 0.2,
             },
         ],
         top_k=2,
     )
 
-    assert result[0]["section"] == "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 5."
+    assert result[0]["section"] == "Article 77"

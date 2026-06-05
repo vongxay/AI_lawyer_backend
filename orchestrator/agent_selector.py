@@ -31,6 +31,11 @@ AGENT_PLANS: dict[QueryType, AgentPlan] = {
         use_reasoning=False,
         use_verification=False,
     ),
+    "clarification": AgentPlan(
+        use_research=False,
+        use_reasoning=False,
+        use_verification=False,
+    ),
     "legal_question": AgentPlan(
         use_research=True,
         use_reasoning=True,

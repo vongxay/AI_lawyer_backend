@@ -132,11 +132,17 @@ async def legal_query_stream(
     async def event_stream() -> AsyncIterator[str]:
         try:
             response_language = infer_response_language(payload.question)
-            preclassified_type = await QueryClassifier().classify(payload.question)
-            likely_conversation = preclassified_type == "conversation" and payload.query_mode == "general"
+            preclassified_route = QueryClassifier().route(
+                payload.question,
+                query_mode=payload.query_mode or "general",
+            )
+            likely_direct_response = (
+                preclassified_route.query_type in {"conversation", "clarification"}
+                and (payload.query_mode or "general") == "general"
+            )
             yield _sse("meta", {"status": "started", "response_language": response_language})
 
-            if not likely_conversation:
+            if not likely_direct_response:
                 for msg in _stream_progress_messages(response_language):
                     if await request.is_disconnected():
                         return
@@ -155,15 +161,15 @@ async def legal_query_stream(
                 model_id=payload.model_id,
             )
             response = result.response
-            is_response_conversation = response.get("query_type") == "conversation"
+            is_direct_response = response.get("query_type") in {"conversation", "clarification"}
 
             yield _sse("answer", {"answer": response.get("answer") or ""})
-            if payload.include_irac and not is_response_conversation:
+            if payload.include_irac and not is_direct_response:
                 yield _sse("irac", response.get("irac", {}))
-            if payload.include_citations and not is_response_conversation:
+            if payload.include_citations and not is_direct_response:
                 yield _sse("citations", response.get("citations", []))
 
-            if not is_response_conversation:
+            if not is_direct_response:
                 yield _sse("confidence", {"score": response.get("confidence", result.confidence)})
             yield _sse(
                 "meta",
@@ -797,6 +803,8 @@ def _normalise_agent_names(values: list[str] | None) -> list[str]:
         "risk_strategy": "risk_strategy",
         "classifier": "query_classifier",
         "query_classifier": "query_classifier",
+        "conversation": "conversation",
+        "intent_router": "intent_router",
     }
     normalised: list[str] = []
     for value in values or []:

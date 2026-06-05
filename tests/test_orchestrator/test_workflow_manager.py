@@ -113,6 +113,23 @@ class TestWorkflowManager:
         workflow._case_memory.update.assert_not_called()
         workflow._audit.log_event.assert_called_once()
 
+    async def test_under_specified_case_asks_clarification_before_rag(self, workflow):
+        result = await workflow.orchestrate(
+            question="\u0e1c\u0e21\u0e42\u0e14\u0e19\u0e42\u0e01\u0e07\u0e40\u0e07\u0e34\u0e19\u0e15\u0e49\u0e2d\u0e07\u0e17\u0e33\u0e22\u0e31\u0e07\u0e44\u0e07",
+            case_id=None,
+        )
+
+        assert result.response["query_type"] == "clarification"
+        assert result.response["answer"]
+        assert result.response["answer_quality"]["rag_used"] is False
+        assert result.response["answer_quality"]["intent_route"]["needs_clarification"] is True
+        assert result.agents_used == ["intent_router"]
+        workflow._research_agent.run.assert_not_called()
+        workflow._reasoning_agent.run.assert_not_called()
+        workflow._verification_agent.run.assert_not_called()
+        workflow._case_memory.update.assert_not_called()
+        workflow._audit.log_event.assert_called_once()
+
     async def test_case_memory_updated_after_orchestration(self, workflow):
         await workflow.orchestrate(question="test", case_id="case-123")
         workflow._case_memory.update.assert_called_once()

@@ -53,6 +53,7 @@ include = [
     "orchestrator*",
     "rag*",
     "services*",
+    "evaluation*",
 ]
 
 [tool.setuptools]
