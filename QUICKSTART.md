@@ -67,9 +67,13 @@ APP_ENV=development
 # Security - generate a random string
 JWT_SECRET=your-random-32-character-secret-key-here
 
-# AI Providers - at least one required
-OPENAI_API_KEY=sk-your-openai-key-here
+# AI Providers - two-model setup
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+OPENAI_API_KEY=sk-or-v1-your-openrouter-key-here
 ANTHROPIC_API_KEY=sk-ant-your-anthropic-key-here
+
+MODEL_ECONOMY=openai/gpt-4o-mini
+MODEL_REASONING=claude-sonnet-4-20250514
 
 # Optional but recommended
 SUPABASE_URL=https://your-project.supabase.co

@@ -234,6 +234,18 @@ class LegalResearchAgent(BaseAgent):
                 "embedding_error": item_embedding_error,
             })
 
+            if self._has_sufficient_statutory_context(all_chunks, item.jurisdiction):
+                coverage = self._planner.assess_coverage(self._dedupe_chunks(all_chunks), item.jurisdiction)
+                trace.append({
+                    "purpose": "early_stop_sufficient_statutory_context",
+                    "jurisdiction": item.jurisdiction,
+                    "results": len(all_chunks),
+                    "mode": "agentic_fast_path",
+                    "reason": coverage.reason or "sufficient_primary_context",
+                    **coverage.metrics,
+                })
+                break
+
         return all_chunks, trace, total_tokens
 
     def _extract_memory_highlights(self, memory: dict) -> dict:
@@ -252,6 +264,12 @@ class LegalResearchAgent(BaseAgent):
         if not chunks:
             return "empty"
         return "database"
+
+    def _has_sufficient_statutory_context(self, chunks: list[dict[str, Any]], jurisdiction: str | None) -> bool:
+        if not chunks:
+            return False
+        coverage = self._planner.assess_coverage(self._dedupe_chunks(chunks), jurisdiction)
+        return coverage.enough_results and coverage.has_statute and coverage.has_clean_text
 
     def _dedupe_chunks(self, chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen: dict[str, int] = {}

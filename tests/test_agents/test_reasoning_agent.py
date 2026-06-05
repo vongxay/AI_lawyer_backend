@@ -365,6 +365,58 @@ class TestIracReasoningAgent:
         assert "\u0eaa\u0eb4\u0e94\u0eaa\u0eb7\u0e9a\u0e97\u0ead\u0e94" in recommendation
         mock_llm.generate.assert_called_once()
 
+    async def test_focused_statutory_answer_rejects_degenerate_generation(self, mock_llm, agent):
+        repeated = "\u0eab\u0ebb\u0e81" * 80
+        mock_llm.generate = AsyncMock(return_value=LlmResult(
+            text=json.dumps({
+                "recommendation": f"\u0ea1\u0eb2\u0e94\u0e95\u0eb2 5 {repeated}\ufffd",
+                "analysis": repeated,
+                "action_steps": [],
+                "confidence": 0.9,
+            }),
+            model="stub",
+            provider="stub",
+        ))
+        research = {
+            "retrieved_documents": [
+                {
+                    "type": "law",
+                    "title": "Law on Land",
+                    "section": "Article 5",
+                    "content": (
+                        "Article 5. The State protects lawful benefits of land-use-right holders "
+                        "and guarantees rights to protect, use, receive benefits, transfer, and inherit."
+                    ),
+                    "final_score": 10.0,
+                }
+            ],
+            "query_analysis": {
+                "authority_hints": [{"law_name": "Law on Land", "article": "5"}],
+            },
+        }
+
+        result = await agent.run(
+            question=LAND_RIGHT_PROTECTION_Q,
+            research=research,
+            document=None,
+            evidence=None,
+            memory={"empty": True},
+            response_language="lo",
+            query_mode="general",
+            response_style="plain",
+            query_type="legal_question",
+        )
+
+        recommendation = result.data["irac"]["conclusion"]["recommendation"]
+        analysis = result.data["irac"]["application"]["analysis"]
+        assert result.ok
+        assert result.confidence == 0.72
+        assert "\ufffd" not in recommendation
+        assert repeated[:24] not in recommendation
+        assert repeated[:24] not in analysis
+        assert "Article 5" in recommendation
+        mock_llm.generate.assert_called_once()
+
     async def test_focused_statutory_answer_supports_any_retrieved_article(self, mock_llm, agent):
         mock_llm.generate = AsyncMock(return_value=LlmResult(
             text=json.dumps({

@@ -30,6 +30,9 @@ _LAO_LEGAL_MARKERS = (
     "\u0ea1\u0eb2\u0e94\u0e95\u0eb2",      # article
     "\u0eaa\u0eb4\u0e94",                  # right
     "\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99",  # land
+    "\u0e94\u0eb4\u0e99",                  # land/soil
+    "\u0e99\u0ecd\u0eb2\u0ec3\u0e8a\u0ec9\u0e94\u0eb4\u0e99",  # land use
+    "\u0e99\u0eb3\u0ec3\u0e8a\u0ec9\u0e94\u0eb4\u0e99",        # land use
     "\u0eaa\u0eb1\u0e99\u0e8d\u0eb2",      # contract
     "\u0e84\u0eb0\u0e94\u0eb5",            # case
     "\u0e9f\u0ec9\u0ead\u0e87",            # sue

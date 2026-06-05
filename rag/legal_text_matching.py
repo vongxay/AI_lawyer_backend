@@ -128,7 +128,11 @@ def extract_lao_legal_terms(query: str) -> list[str]:
             terms.append(phrase)
 
     for marker, expansions in LAO_LEGAL_EXPANSIONS:
-        if marker in lowered or normalise_search_text(marker) in normalised:
+        marker_hit = marker in lowered
+        normalised_hit = normalise_search_text(marker) in normalised
+        if marker in {"\u0e99\u0ec9\u0eb3", "\u0e99\u0ecd\u0ec9\u0eb2"}:
+            normalised_hit = False
+        if marker_hit or normalised_hit:
             terms.extend(expansions)
 
     return unique_terms(terms)

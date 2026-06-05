@@ -129,6 +129,10 @@ class LegalQueryAnalyzer:
         areas = {
             "land": (
                 LAO_LAND,
+                "\u0e94\u0eb4\u0e99",
+                "\u0e99\u0ecd\u0eb2\u0ec3\u0e8a\u0ec9\u0e94\u0eb4\u0e99",
+                "\u0e99\u0eb3\u0ec3\u0e8a\u0ec9\u0e94\u0eb4\u0e99",
+                "\u0e99\u0eb2\u0ecd\u0ec3\u0e8a\u0ec9\u0e94\u0eb4\u0e99",
                 "\u0eaa\u0eb4\u0e94\u0e99\u0eb3\u0ec3\u0e8a\u0ec9",
                 "\u0e81\u0eb3\u0ea1\u0eb0\u0eaa\u0eb4\u0e94",
                 THAI_LAND,
@@ -398,7 +402,17 @@ class LegalQueryAnalyzer:
 
     def _is_land_use_right_protection_question(self, question: str) -> bool:
         lowered = question.casefold()
-        has_land = LAO_LAND in lowered or "land" in lowered
+        has_land = any(
+            marker in lowered
+            for marker in (
+                LAO_LAND,
+                "\u0e94\u0eb4\u0e99",
+                "\u0e99\u0ecd\u0eb2\u0ec3\u0e8a\u0ec9\u0e94\u0eb4\u0e99",
+                "\u0e99\u0eb3\u0ec3\u0e8a\u0ec9\u0e94\u0eb4\u0e99",
+                "\u0e99\u0eb2\u0ecd\u0ec3\u0e8a\u0ec9\u0e94\u0eb4\u0e99",
+                "land",
+            )
+        )
         has_right = LAO_RIGHT in lowered or "right" in lowered
         has_use_right = any(
             marker in lowered

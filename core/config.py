@@ -82,17 +82,22 @@ class Settings(BaseSettings):
 
     # ── AI Providers ───────────────────────────────────────────────────────────
     openai_api_key: str | None = None
+    openai_base_url: str | None = None
+    openrouter_api_key: str | None = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_site_url: str | None = None
+    openrouter_app_title: str = "AI Lawyer"
     anthropic_api_key: str | None = None
 
     # Model aliases — change here to swap models globally
     # Low-cost Claude API default. Override only when a workflow needs a stronger model.
-    model_economy: str = "claude-haiku-4-5-20251001"
-    model_reasoning: str = "claude-haiku-4-5-20251001"      # IRAC reasoning
-    model_research: str = "claude-haiku-4-5-20251001"       # Legal research / standard QA
-    model_verification: str = "claude-haiku-4-5-20251001"   # Citation verification
-    model_document: str = "claude-haiku-4-5-20251001"       # Document analysis
-    model_evidence: str = "claude-haiku-4-5-20251001"       # Evidence analysis
-    model_risk: str = "claude-haiku-4-5-20251001"           # Risk & strategy
+    model_economy: str = "openai/gpt-4o-mini"               # OpenRouter/OpenAI-compatible fallback
+    model_reasoning: str = "claude-sonnet-4-20250514"       # IRAC reasoning
+    model_research: str = "openai/gpt-4o-mini"              # Legal research / standard QA
+    model_verification: str = "openai/gpt-4o-mini"          # Citation verification
+    model_document: str = "openai/gpt-4o-mini"              # Document analysis
+    model_evidence: str = "openai/gpt-4o-mini"              # Evidence analysis
+    model_risk: str = "claude-sonnet-4-20250514"            # Risk & strategy
 
     # LLM budget controls. Defaults are tuned for a small prepaid balance.
     llm_economy_mode: bool = True
@@ -160,8 +165,26 @@ class Settings(BaseSettings):
         return bool(stripped) and "..." not in stripped and not stripped.endswith("-")
 
     @staticmethod
+    def _looks_openrouter_key(value: str | None) -> bool:
+        return bool(value and value.strip().startswith("sk-or-"))
+
+    @staticmethod
+    def _looks_openrouter_base_url(value: str | None) -> bool:
+        return bool(value and "openrouter.ai" in value.lower())
+
+    @staticmethod
+    def _is_openrouter_model(model: str) -> bool:
+        return "/" in model
+
+    @staticmethod
     def _is_openai_model(model: str) -> bool:
-        return model.startswith("gpt") or model.startswith("o1")
+        return (
+            model.startswith("gpt")
+            or model.startswith("o1")
+            or model.startswith("o3")
+            or model.startswith("o4")
+            or model.startswith("openai/")
+        )
 
     @staticmethod
     def _is_anthropic_model(model: str) -> bool:
@@ -194,15 +217,29 @@ class Settings(BaseSettings):
             ]
             has_anthropic_key = self._looks_configured_secret(self.anthropic_api_key)
             has_openai_key = self._looks_configured_secret(self.openai_api_key)
+            has_openrouter_key = self._looks_configured_secret(self.openrouter_api_key) or (
+                has_openai_key
+                and (
+                    self._looks_openrouter_key(self.openai_api_key)
+                    or self._looks_openrouter_base_url(self.openai_base_url)
+                )
+            )
+            has_openai_compatible_key = has_openai_key or has_openrouter_key
 
-            if any(self._is_anthropic_model(model) for model in llm_models) and not has_anthropic_key:
+            if (
+                any(self._is_anthropic_model(model) for model in llm_models)
+                and not has_anthropic_key
+                and not has_openrouter_key
+            ):
                 missing.append("ANTHROPIC_API_KEY")
             if (
                 any(self._is_openai_model(model) for model in llm_models)
-                and not has_openai_key
+                and not has_openai_compatible_key
                 and not (self.llm_fallback_to_economy_model and has_anthropic_key)
             ):
-                missing.append("OPENAI_API_KEY")
+                missing.append("OPENAI_API_KEY or OPENROUTER_API_KEY")
+            if any(self._is_openrouter_model(model) for model in llm_models) and not has_openai_compatible_key:
+                missing.append("OPENROUTER_API_KEY or OPENAI_API_KEY")
             if missing:
                 raise ValueError(f"Production requires these env vars: {missing}")
         return self

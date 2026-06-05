@@ -112,6 +112,20 @@ class CitationVerificationAgent(BaseAgent):
             return {**citation, "status": "REJECTED", "reason": "Empty citation reference"}
 
         try:
+            chunk = await self._find_document_chunk(citation)
+            if chunk:
+                status_value = str(chunk.get("status", "")).casefold()
+                review_status = str(chunk.get("review_status", "")).casefold()
+                status = "VERIFIED" if status_value == "active" and review_status == "approved" else "UNVERIFIED"
+                metadata = chunk.get("metadata") if isinstance(chunk.get("metadata"), dict) else {}
+                source_url = chunk.get("source_url") or metadata.get("source_url")
+                return {
+                    **citation,
+                    "status": status,
+                    "db_match": chunk.get("title") or chunk.get("section_ref") or chunk.get("id"),
+                    "source_links": [source_url] if source_url else citation.get("source_links", []),
+                }
+
             law = await self._find_law(ref)
             if law:
                 status_value = str(law.get("status", "")).upper()
@@ -139,6 +153,30 @@ class CitationVerificationAgent(BaseAgent):
         except Exception as exc:
             log.warning("verification.db_error", ref=ref, error=str(exc))
             return None
+
+    async def _find_document_chunk(self, citation: dict) -> dict | None:
+        chunk_id = str(citation.get("chunk_id") or "").strip()
+        if not chunk_id or not self._supabase:
+            return None
+
+        selects = (
+            "id, title, status, review_status, source_url, metadata, section_ref",
+            "id, title, status, review_status, section_ref",
+        )
+        for select in selects:
+            try:
+                result = await (
+                    self._supabase.table("document_chunks")
+                    .select(select)
+                    .eq("id", chunk_id)
+                    .limit(1)
+                    .execute()
+                )
+                if result.data:
+                    return result.data[0]
+            except Exception:
+                continue
+        return None
 
     async def _find_law(self, ref: str) -> dict | None:
         terms = self._search_terms(ref)
@@ -192,6 +230,13 @@ class CitationVerificationAgent(BaseAgent):
         return [term for term in terms if term]
 
     def _section_number(self, ref: str) -> str | None:
+        match = re.search(
+            r"(?:\u0ea1\u0eb2\u0e94\u0e95\u0eb2|\u0e21\u0e32\u0e15\u0e23\u0e32|article|art\.?|section|sec\.?)\s*([0-9A-Za-z/.-]+)",
+            ref,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            return match.group(1)
         match = re.search(r"(?:มาตรา|section|sec\.?)\s*([0-9A-Za-z/.-]+)", ref, flags=re.IGNORECASE)
         return match.group(1) if match else None
 

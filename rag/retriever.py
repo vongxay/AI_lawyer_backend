@@ -248,8 +248,6 @@ class Retriever:
                         continue
                     seen.add(key)
                     rows.append(normalised)
-                    if len(rows) >= top_k:
-                        return sorted(rows, key=self._row_score, reverse=True)[:top_k]
             except Exception as exc:
                 log.debug("retriever.direct_keyword.term_failed", term=safe_term, error=str(exc))
         return sorted(rows, key=self._row_score, reverse=True)[:top_k]
@@ -289,6 +287,10 @@ class Retriever:
 
         land_markers = (
             "\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99",
+            "\u0e94\u0eb4\u0e99",
+            "\u0e99\u0ecd\u0eb2\u0ec3\u0e8a\u0ec9\u0e94\u0eb4\u0e99",
+            "\u0e99\u0eb3\u0ec3\u0e8a\u0ec9\u0e94\u0eb4\u0e99",
+            "\u0e99\u0eb2\u0ecd\u0ec3\u0e8a\u0ec9\u0e94\u0eb4\u0e99",
             "\u0e81\u0eb3\u0ea1\u0eb0\u0eaa\u0eb4\u0e94",
             "\u0eaa\u0eb4\u0e94\u0e99\u0eb3\u0ec3\u0e8a\u0ec9",
             LAO_LAND_USE_RIGHT_ALT,
@@ -305,6 +307,7 @@ class Retriever:
         if any(marker in lowered for marker in land_markers):
             terms.extend([
                 "\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99",
+                "\u0e94\u0eb4\u0e99",
                 "\u0e81\u0eb3\u0ea1\u0eb0\u0eaa\u0eb4\u0e94",
                 "\u0eaa\u0eb4\u0e94\u0e99\u0eb3\u0ec3\u0e8a\u0ec9",
                 LAO_LAND_USE_RIGHT_ALT,

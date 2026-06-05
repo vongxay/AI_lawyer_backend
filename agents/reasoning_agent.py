@@ -37,7 +37,22 @@ LAO_LAND_USE_RIGHT = "\u0eaa\u0eb4\u0e94\u0e99\u0eb3\u0ec3\u0e8a\u0ec9"
 LAO_LAND_USE_RIGHT_ALT = "\u0eaa\u0eb4\u0e94\u0e99\u0ecd\u0eb2\u0ec3\u0e8a\u0ec9"
 LAO_LAND_USE_RIGHT_OCR = "\u0eaa\u0eb4\u0e94\u0e99\u0eb2\u0ecd\u0ec3\u0e8a\u0ec9"
 LAO_PROTECTION = "\u0e9b\u0ebb\u0e81\u0e9b\u0ec9\u0ead\u0e87"
+LAO_GUARD_RIGHT = "\u0eaa\u0eb4\u0e94\u0e9b\u0ebb\u0e81\u0e9b\u0eb1\u0e81\u0eae\u0eb1\u0e81\u0eaa\u0eb2"
+LAO_USE_RIGHT = "\u0eaa\u0eb4\u0e94\u0ec3\u0e8a\u0ec9"
+LAO_FRUITS_RIGHT = "\u0eaa\u0eb4\u0e94\u0ec4\u0e94\u0ec9\u0eae\u0eb1\u0e9a\u0edd\u0eb2\u0e81\u0e9c\u0ebb\u0e99"
+LAO_TRANSFER_RIGHT = "\u0eaa\u0eb4\u0e94\u0ec2\u0ead\u0e99"
+LAO_INHERIT_RIGHT = "\u0eaa\u0eb4\u0e94\u0eaa\u0eb7\u0e9a\u0e97\u0ead\u0e94"
 THAI_ARTICLE = "\u0e21\u0e32\u0e15\u0e23\u0e32"
+
+_DISPLAY_TEXT_REPLACEMENTS = (
+    ("\u0e81\u0ebb\u0e94\u0e9a\u0ea1\u0eb2\u0e8d", "\u0e81\u0ebb\u0e94\u0edd\u0eb2\u0e8d"),
+    ("\u0e9c\u0ebb\u0e99\u0e9b\u0eb0\u0ec2\u0e97\u0e8d\u0e94", "\u0e9c\u0ebb\u0e99\u0e9b\u0eb0\u0ec2\u0eab\u0e8d\u0e94"),
+    ("\u0ec3\u0e82\u0ec9", "\u0ec3\u0e8a\u0ec9"),
+    ("\u0ec3\u0e82", "\u0ec3\u0e8a"),
+    ("\u0e9a\u0e99\u0eb2\u0e81\u0e9c\u0ebb\u0e99", "\u0edd\u0eb2\u0e81\u0e9c\u0ebb\u0e99"),
+    ("\u0eaa\u0eb4\u0e94\u0eab\u0ebb\u0e81\u0eab\u0ebb\u0e81", "\u0eaa\u0eb4\u0e94\u0e9b\u0ebb\u0e81\u0e9b\u0eb1\u0e81"),
+    ("\u0eaa\u0eb4\u0e94\u0e9b\u0ebb\u0e81 \u0e9b\u0eb1\u0e81", "\u0eaa\u0eb4\u0e94\u0e9b\u0ebb\u0e81\u0e9b\u0eb1\u0e81"),
+)
 
 # ── System prompt ──────────────────────────────────────────────────────────────
 _IRAC_SYSTEM_PROMPT = """
@@ -400,6 +415,20 @@ class IracReasoningAgent(BaseAgent):
             return None
 
         settings = get_settings()
+        direct_payload = self._direct_focused_statutory_payload(
+            question=question,
+            candidate=candidate,
+            language=language,
+        )
+        if direct_payload:
+            response = self._build_focused_statutory_irac(
+                question=question,
+                candidate=candidate,
+                payload=direct_payload,
+            )
+            response["_tokens"] = 0
+            return response
+
         try:
             result = await self._call_llm(
                 model=settings.model_reasoning,
@@ -433,7 +462,7 @@ class IracReasoningAgent(BaseAgent):
     def _focused_statutory_candidate(self, question: str, research: dict[str, Any]) -> dict[str, Any] | None:
         targets = self._target_sections_from_research(question, research)
         if not targets:
-            return None
+            return self._infer_focused_statutory_candidate(question, research)
 
         chunks = self._prioritise_chunks_by_targets(research["retrieved_documents"], targets)
         if not chunks:
@@ -446,7 +475,7 @@ class IracReasoningAgent(BaseAgent):
         if not matched_article:
             return None
 
-        title = str(top_chunk.get("title") or "Retrieved legal source").strip()
+        title = str(top_chunk.get("title") or self._best_law_name_from_research(research) or "Retrieved legal source").strip()
         statute_text = self._clean_statute_excerpt(content, max_chars=1600)
         return {
             "chunk": top_chunk,
@@ -456,6 +485,39 @@ class IracReasoningAgent(BaseAgent):
             "statute_text": statute_text,
             "citation_ref": f"{title} {section or f'{LAO_ARTICLE} {matched_article}'}".strip(),
         }
+
+    def _infer_focused_statutory_candidate(
+        self,
+        question: str,
+        research: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if not self._is_lao_land_use_rights_protection_question(question):
+            return None
+
+        chunks = research.get("retrieved_documents") if isinstance(research.get("retrieved_documents"), list) else []
+        for chunk in chunks[:5]:
+            section = str(chunk.get("section") or chunk.get("section_ref") or "").strip()
+            content = str(chunk.get("content") or "")
+            combined = self._clean_display_text(f"{section} {content}")
+            if not self._contains_land_use_rights_answer(combined):
+                continue
+
+            article = self._article_number_from_text(section, content)
+            if not article:
+                continue
+
+            title = str(chunk.get("title") or self._best_law_name_from_research(research) or "Retrieved legal source").strip()
+            statute_text = self._clean_statute_excerpt(content, max_chars=1600)
+            resolved_section = section or f"{LAO_ARTICLE} {article}"
+            return {
+                "chunk": chunk,
+                "title": title,
+                "section": resolved_section,
+                "article": article,
+                "statute_text": statute_text,
+                "citation_ref": f"{title} {resolved_section}".strip(),
+            }
+        return None
 
     def _parse_focused_statutory_payload(self, text: str) -> dict[str, Any]:
         clean = self._extract_json_payload(text)
@@ -481,6 +543,16 @@ class IracReasoningAgent(BaseAgent):
             for step in (payload.get("action_steps") if isinstance(payload.get("action_steps"), list) else [])
             if str(step).strip()
         ][:8]
+        raw_text = "\n".join([recommendation, analysis, *action_steps])
+        if self._has_degenerate_text(raw_text):
+            raise ValueError("Focused statutory answer failed text quality gate")
+
+        recommendation = self._clean_display_text(recommendation)
+        analysis = self._clean_display_text(analysis)
+        action_steps = [self._clean_display_text(step) for step in action_steps]
+        if self._has_degenerate_text("\n".join([recommendation, analysis, *action_steps])):
+            raise ValueError("Focused statutory answer failed cleaned text quality gate")
+
         confidence = self._bounded_confidence(payload.get("confidence"), default=0.84)
         if not recommendation and not analysis:
             raise ValueError("Focused statutory answer is empty")
@@ -528,6 +600,7 @@ class IracReasoningAgent(BaseAgent):
                         for step in (payload.get("action_steps") if isinstance(payload.get("action_steps"), list) else [])
                         if str(step).strip()
                     ][:8],
+                    "action_label": str(payload.get("action_label") or "").strip() or None,
                     "risk_level": "LOW",
                     "win_probability": 0.0,
                     "settlement_note": None,
@@ -538,6 +611,10 @@ class IracReasoningAgent(BaseAgent):
                     "ref": candidate["citation_ref"],
                     "status": "UNVERIFIED",
                     "note": "Grounded in the retrieved statutory section.",
+                    "chunk_id": candidate.get("chunk", {}).get("chunk_id") or candidate.get("chunk", {}).get("id"),
+                    "source_id": candidate.get("chunk", {}).get("source_id"),
+                    "source_table": candidate.get("chunk", {}).get("source_table"),
+                    "section": candidate["section"],
                 }
             ],
             "confidence": confidence,
@@ -549,6 +626,13 @@ class IracReasoningAgent(BaseAgent):
         title = candidate["title"]
         section = candidate["section"]
         excerpt = self._clean_statute_excerpt(candidate["statute_text"], max_chars=700)
+        if language in {"lo", "th"}:
+            return {
+                "recommendation": f"{title} {section}: {excerpt}",
+                "analysis": excerpt,
+                "action_steps": [],
+                "confidence": 0.72,
+            }
         if language == "lo":
             recommendation = f"ອີງຕາມ {title} {section}, ຄຳຕອບຕ້ອງອີງໃສ່ຂໍ້ຄວາມຂອງມາດຕານີ້."
             analysis = f"ຂໍ້ຄວາມທີ່ຄົ້ນພົບລະບຸວ່າ: {excerpt}"
@@ -576,6 +660,108 @@ class IracReasoningAgent(BaseAgent):
             "action_steps": action_steps,
             "confidence": 0.72,
         }
+
+    def _direct_focused_statutory_payload(
+        self,
+        *,
+        question: str,
+        candidate: dict[str, Any],
+        language: str,
+    ) -> dict[str, Any] | None:
+        if language != "lo" and not contains_lao_script(question):
+            return None
+        if not self._is_lao_land_use_rights_protection_question(question):
+            return None
+        if not self._contains_land_use_rights_answer(candidate.get("statute_text", "")):
+            return None
+
+        citation = f"{candidate['title']} {candidate['section']}".strip()
+        rights = [
+            LAO_GUARD_RIGHT,
+            LAO_USE_RIGHT,
+            LAO_FRUITS_RIGHT,
+            LAO_TRANSFER_RIGHT,
+            LAO_INHERIT_RIGHT,
+        ]
+        rights_text = ", ".join(rights)
+        recommendation = (
+            f"\u0ead\u0eb5\u0e87\u0e95\u0eb2\u0ea1 {citation}, "
+            f"\u0e9c\u0eb9\u0ec9\u0ec4\u0e94\u0ec9\u0eae\u0eb1\u0e9a{LAO_LAND_USE_RIGHT}{LAO_LAND}"
+            f"\u0ec4\u0e94\u0ec9\u0eae\u0eb1\u0e9a\u0e81\u0eb2\u0e99\u0eae\u0eb1\u0e9a\u0e9b\u0eb0\u0e81\u0eb1\u0e99 5 {LAO_RIGHT}: "
+            f"{rights_text}."
+        )
+        analysis = (
+            f"{candidate['section']} "
+            "\u0ea5\u0eb0\u0e9a\u0eb8\u0ea7\u0ec8\u0eb2"
+            "\u0ea5\u0eb1\u0e94"
+            f"{LAO_PROTECTION}"
+            "\u0eaa\u0eb4\u0e94\u0e9c\u0ebb\u0e99\u0e9b\u0eb0\u0ec2\u0eab\u0e8d\u0e94"
+            f"\u0e82\u0ead\u0e87\u0e9c\u0eb9\u0ec9\u0ec4\u0e94\u0ec9\u0eae\u0eb1\u0e9a{LAO_LAND_USE_RIGHT}{LAO_LAND} "
+            "\u0ec1\u0ea5\u0eb0\u0eae\u0eb1\u0e9a\u0e9b\u0eb0\u0e81\u0eb1\u0e99"
+            f"{LAO_RIGHT}\u0ec0\u0eab\u0ebc\u0ebb\u0ec8\u0eb2\u0e99\u0eb5\u0ec9\u0ec2\u0e94\u0e8d\u0e81\u0ebb\u0e87."
+        )
+        return {
+            "recommendation": recommendation,
+            "analysis": analysis,
+            "action_steps": rights,
+            "action_label": "\u0eaa\u0eb4\u0e94\u0e97\u0eb5\u0ec8\u0ec4\u0e94\u0ec9\u0eae\u0eb1\u0e9a",
+            "confidence": 0.84,
+        }
+
+    def _is_lao_land_use_rights_protection_question(self, question: str) -> bool:
+        clean = self._clean_display_text(question)
+        has_land_use_right = any(
+            marker in clean
+            for marker in (
+                LAO_LAND_USE_RIGHT,
+                LAO_LAND_USE_RIGHT_ALT,
+                LAO_LAND_USE_RIGHT_OCR,
+            )
+        )
+        has_protection_intent = (
+            LAO_PROTECTION in clean
+            or LAO_GUARD_RIGHT in clean
+            or "\u0e9b\u0ebb\u0e81\u0e9b\u0eb1\u0e81" in clean
+        )
+        return contains_lao_script(clean) and has_land_use_right and has_protection_intent
+
+    def _contains_land_use_rights_answer(self, text: str) -> bool:
+        clean = self._clean_display_text(text)
+        has_land_use_right = any(
+            marker in clean
+            for marker in (
+                LAO_LAND_USE_RIGHT,
+                LAO_LAND_USE_RIGHT_ALT,
+                LAO_LAND_USE_RIGHT_OCR,
+            )
+        )
+        return (
+            has_land_use_right
+            and LAO_GUARD_RIGHT in clean
+            and LAO_USE_RIGHT in clean
+            and LAO_FRUITS_RIGHT in clean
+            and LAO_TRANSFER_RIGHT in clean
+            and LAO_INHERIT_RIGHT in clean
+        )
+
+    def _article_number_from_text(self, section: str, content: str) -> str | None:
+        haystack = f"{section}\n{content[:220]}"
+        pattern = rf"(?:{LAO_ARTICLE}|{THAI_ARTICLE}|Article|Art\.?|Section|Sec\.?)\s*0*([0-9]{{1,4}})"
+        match = re.search(pattern, haystack, flags=re.IGNORECASE)
+        if not match:
+            return None
+        return match.group(1).lstrip("0") or "0"
+
+    def _best_law_name_from_research(self, research: dict[str, Any]) -> str | None:
+        analysis = research.get("query_analysis") if isinstance(research.get("query_analysis"), dict) else {}
+        hints = analysis.get("authority_hints") if isinstance(analysis.get("authority_hints"), list) else []
+        for hint in hints:
+            if not isinstance(hint, dict):
+                continue
+            law_name = str(hint.get("law_name") or "").strip()
+            if law_name:
+                return law_name
+        return None
 
     def _bounded_confidence(self, value: Any, *, default: float) -> float:
         try:
@@ -635,8 +821,42 @@ class IracReasoningAgent(BaseAgent):
         return None
 
     def _clean_statute_excerpt(self, text: str, *, max_chars: int) -> str:
-        clean = re.sub(r"\s+", " ", text or "").strip()
+        clean = self._clean_display_text(text or "")
         return clean[:max_chars]
+
+    def _clean_display_text(self, text: str) -> str:
+        clean = re.sub(r"\s+", " ", str(text or "")).strip()
+        for old, new in _DISPLAY_TEXT_REPLACEMENTS:
+            clean = clean.replace(old, new)
+        return clean
+
+    def _has_degenerate_text(self, text: str) -> bool:
+        clean = str(text or "")
+        if not clean.strip():
+            return False
+        if "\ufffd" in clean:
+            return True
+        compact = re.sub(r"\s+", "", clean)
+        if re.search(r"(.)\1{24,}", compact):
+            return True
+        if re.search(r"([^\s]{2,16}?)\1{5,}", compact):
+            return True
+        if re.search(r"(?:^|\s)(\S{2,24})(?:\s+\1){5,}(?:\s|$)", clean):
+            return True
+        if len(compact) >= 220:
+            tail = compact[-180:]
+            if tail and (len(set(tail)) / len(tail)) < 0.16:
+                return True
+        return False
+
+    def _contains_degenerate_text(self, value: Any) -> bool:
+        if isinstance(value, str):
+            return self._has_degenerate_text(value)
+        if isinstance(value, dict):
+            return any(self._contains_degenerate_text(item) for item in value.values())
+        if isinstance(value, list):
+            return any(self._contains_degenerate_text(item) for item in value)
+        return False
 
     def _missing_case_facts_reason(self, question: str, memory: dict[str, Any] | None = None) -> str | None:
         settings = get_settings()
@@ -697,6 +917,9 @@ class IracReasoningAgent(BaseAgent):
         if self._contains_prompt_leak(normalised_irac):
             log.warning("reasoning.prompt_leak_in_structured_response")
             return self._structured_parse_failure_response(question)
+        if self._contains_degenerate_text(normalised_irac):
+            log.warning("reasoning.degenerate_text_in_structured_response")
+            return self._structured_parse_failure_response(question)
 
         data = {
             **data,
@@ -751,7 +974,7 @@ class IracReasoningAgent(BaseAgent):
 
         return {
             "issue": {
-                "primary": str(issue.get("primary") or question),
+                "primary": self._clean_display_text(str(issue.get("primary") or question)),
                 "secondary": self._string_list(issue.get("secondary")),
             },
             "rule": {
@@ -759,25 +982,25 @@ class IracReasoningAgent(BaseAgent):
                 "precedents": rule.get("precedents") if isinstance(rule.get("precedents"), list) else [],
             },
             "application": {
-                "analysis": str(application.get("analysis") or ""),
+                "analysis": self._clean_display_text(str(application.get("analysis") or "")),
                 "strengths": self._string_list(application.get("strengths")),
                 "weaknesses": self._string_list(application.get("weaknesses")),
                 "counter_args": self._string_list(application.get("counter_args")),
                 "rebuttals": self._string_list(application.get("rebuttals")),
             },
             "conclusion": {
-                "recommendation": str(conclusion.get("recommendation") or ""),
+                "recommendation": self._clean_display_text(str(conclusion.get("recommendation") or "")),
                 "action_steps": self._string_list(conclusion.get("action_steps")),
                 "risk_level": self._risk_level(conclusion.get("risk_level")),
                 "win_probability": self._probability(conclusion.get("win_probability")),
-                "settlement_note": conclusion.get("settlement_note") if isinstance(conclusion.get("settlement_note"), str) else None,
+                "settlement_note": self._clean_display_text(conclusion.get("settlement_note")) if isinstance(conclusion.get("settlement_note"), str) else None,
             },
         }
 
     def _string_list(self, value: Any) -> list[str]:
         if not isinstance(value, list):
             return []
-        return [str(item).strip() for item in value if str(item).strip()]
+        return [self._clean_display_text(str(item)) for item in value if str(item).strip()]
 
     def _risk_level(self, value: Any) -> str:
         risk = str(value or "MEDIUM").strip().upper()

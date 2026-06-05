@@ -168,6 +168,8 @@ class TestWorkflowManager:
             question="ควรฟ้องหรือเจรจาดี อยากรู้โอกาสชนะ",  # triggers case_strategy
             case_id=None,
         )
+        assert result.response["query_type"] == "case_strategy"
+        assert result.response["response_style"] == "action_plan"
         assert "risk" in result.agents_used
 
     async def test_document_agent_invoked_when_text_provided(self, workflow):

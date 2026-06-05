@@ -149,8 +149,15 @@ class WorkflowManager:
         )
         classified_type = intent_route.query_type
         query_type = self._query_type_for_mode(effective_mode, classified_type)
+        effective_style = self._response_style_for_intent(
+            current_style=effective_style,
+            query_mode=effective_mode,
+            query_type=query_type,
+            route_style=intent_route.response_style,
+        )
         intent_route_data = intent_route.to_dict()
         intent_route_data["effective_query_type"] = query_type
+        intent_route_data["effective_response_style"] = effective_style
 
         cache_key = self._build_cache_key(
             question=clean_question,
@@ -792,7 +799,7 @@ class WorkflowManager:
         memory_hash: str | None,
     ) -> str:
         payload = {
-            "answer_pipeline_version": 10,
+            "answer_pipeline_version": 12,
             "question": question,
             "case_id": case_id,
             "jurisdiction": jurisdiction,
@@ -835,6 +842,34 @@ class WorkflowManager:
         if query_mode in {"serious_case", "evidence"}:
             return "action_plan"
         return "irac"
+
+    def _response_style_for_intent(
+        self,
+        *,
+        current_style: str,
+        query_mode: str,
+        query_type: str,
+        route_style: str | None,
+    ) -> str:
+        if query_type in {"conversation", "clarification"}:
+            return "plain"
+
+        specialist_styles = {
+            "case_strategy": "action_plan",
+            "evidence_analysis": "action_plan",
+            "document_review": "irac",
+            "draft_document": "irac",
+        }
+        if query_type in specialist_styles:
+            return specialist_styles[query_type]
+
+        if query_mode != "general":
+            return current_style
+
+        style = (route_style or "").strip().lower()
+        if style in {"plain", "irac", "action_plan"}:
+            return style
+        return current_style
 
     def _query_type_for_mode(self, query_mode: str, classified_type: str) -> str:
         overrides: dict[str, str] = {
@@ -1006,25 +1041,28 @@ class WorkflowManager:
             for step in ((conclusion or {}).get("action_steps") or [])
             if str(step).strip()
         ]
+        action_label = str((conclusion or {}).get("action_label") or "").strip()
 
         if response_style == "plain":
             labels = self._answer_labels(response_language)
+            step_label = action_label or labels["next_steps"]
             plain_parts = [part for part in (recommendation, analysis) if part]
             if action_steps:
                 plain_parts.append(
-                    f"{labels['next_steps']}\n"
+                    f"{step_label}\n"
                     + "\n".join(f"{index + 1}. {step}" for index, step in enumerate(action_steps))
                 )
             return "\n\n".join(plain_parts)
 
         labels = self._answer_labels(response_language)
+        step_label = action_label or labels["next_steps"]
         parts = []
         if recommendation:
             parts.append(f"{labels['recommendation']}\n{recommendation}")
         if analysis:
             parts.append(f"{labels['analysis']}\n{analysis}")
         if action_steps:
-            parts.append(f"{labels['next_steps']}\n" + "\n".join(f"- {step}" for step in action_steps))
+            parts.append(f"{step_label}\n" + "\n".join(f"- {step}" for step in action_steps))
 
         if response_style == "action_plan" and isinstance(risk_data, dict):
             immediate_actions = [

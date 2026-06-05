@@ -122,12 +122,18 @@ class AgenticRetrievalPlanner:
         elif not has_clean_text:
             reason = "retrieved_text_quality_low"
 
+        recoverable_by_second_pass = reason in {
+            "too_few_results",
+            "no_statutory_authority",
+            "retrieved_text_quality_low",
+        }
+
         return RetrievalCoverage(
             enough_results=enough_results,
             has_statute=has_statute,
             has_official_source=has_official_source,
             has_clean_text=has_clean_text,
-            should_second_pass=reason is not None,
+            should_second_pass=recoverable_by_second_pass,
             reason=reason,
             metrics={
                 "count": count,
