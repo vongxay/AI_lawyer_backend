@@ -72,6 +72,13 @@ def workflow() -> WorkflowManager:
 
     wf._case_memory.get = AsyncMock(return_value={"empty": True})
     wf._case_memory.update = AsyncMock()
+    wf._session_memory.get = AsyncMock(return_value={
+        "empty": True,
+        "messages": [],
+        "conversation_summary": "",
+        "cache_key": "empty",
+        "message_count": 0,
+    })
     wf._audit.log_event = AsyncMock()
     wf._expert_queue.enqueue = AsyncMock()
 
@@ -153,3 +160,29 @@ class TestWorkflowManager:
         result = await workflow.orchestrate(question="test", case_id=None)
         assert result.session_id
         assert len(result.session_id) == 36  # UUID4 format
+
+    async def test_session_memory_is_used_for_follow_up_context(self, workflow):
+        workflow._session_memory.get = AsyncMock(return_value={
+            "empty": False,
+            "messages": [
+                {"role": "user", "content": "User owns industrial land."},
+                {"role": "assistant", "content": "Answered about land construction permits."},
+            ],
+            "conversation_summary": "User: User owns industrial land.\nAssistant: Answered about land construction permits.",
+            "current_user_state": "User owns industrial land.",
+            "last_assistant_answer": "Answered about land construction permits.",
+            "cache_key": "conversation-hash",
+            "message_count": 2,
+        })
+
+        result = await workflow.orchestrate(
+            question="What should I do next?",
+            case_id=None,
+            session_id="11111111-1111-1111-1111-111111111111",
+        )
+
+        research_question = workflow._research_agent.run.call_args.kwargs["question"]
+        reasoning_memory = workflow._reasoning_agent.run.call_args.kwargs["memory"]
+        assert "Conversation context for retrieval only" in research_question
+        assert "industrial land" in reasoning_memory["conversation_summary"]
+        assert result.response["answer_quality"]["conversation_memory"]["used"] is True

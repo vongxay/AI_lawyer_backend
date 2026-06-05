@@ -44,6 +44,7 @@ from core.exceptions import ExternalServiceError, LowConfidenceError, ProviderNo
 from core.jurisdiction import infer_jurisdiction, infer_response_language
 from core.logging import get_logger
 from memory.case_memory import CaseMemoryService
+from memory.session_memory import SessionMemoryService
 from orchestrator.agent_selector import AgentSelector
 from orchestrator.query_classifier import QueryClassifier, QueryType
 from services.audit_service import AuditService, ExpertQueueService
@@ -87,6 +88,7 @@ class WorkflowManager:
 
         # ── Services ──────────────────────────────────────────────────────────
         self._case_memory = CaseMemoryService(supabase=supabase, redis=redis)
+        self._session_memory = SessionMemoryService(supabase=supabase, redis=redis)
         self._audit = AuditService(supabase=supabase)
         self._expert_queue = ExpertQueueService(supabase=supabase)
         self._cache = CacheService(redis_client=redis)
@@ -134,6 +136,10 @@ class WorkflowManager:
         # ── Step 0: PII redaction on all user input ───────────────────────────
         clean_question = self._pii.redact_text(question)
         clean_doc_text = self._pii.redact_text(document_text) if document_text else None
+        case_memory = await self._case_memory.get(case_id, tenant_id=tenant_id, user_id=user_id)
+        session_memory = await self._session_memory.get(sid, tenant_id=tenant_id, user_id=user_id)
+        memory = self._merge_memory(case_memory, session_memory)
+        contextual_question = self._contextual_question(clean_question, session_memory)
 
         cache_key = self._build_cache_key(
             question=clean_question,
@@ -146,6 +152,8 @@ class WorkflowManager:
             urgency=effective_urgency,
             model_id=model_id,
             response_language=response_language,
+            conversation_hash=session_memory.get("cache_key", "empty"),
+            memory_hash=self._memory_hash(memory),
         )
         cacheable = clean_doc_text is None and not evidence_files
         if cacheable:
@@ -169,10 +177,10 @@ class WorkflowManager:
                 )
 
         # ── Step 1: Load case memory ──────────────────────────────────────────
-        memory = await self._case_memory.get(case_id, tenant_id=tenant_id)
+        # Memory is loaded before cache lookup so session-aware answers never reuse stale context.
 
         # ── Step 2: Classify query ────────────────────────────────────────────
-        classified_type = await self._classifier.classify(clean_question)
+        classified_type = await self._classifier.classify(contextual_question)
         query_type = self._query_type_for_mode(effective_mode, classified_type)
 
         # ── Step 3: Dynamic agent selection ──────────────────────────────────
@@ -196,6 +204,7 @@ class WorkflowManager:
             jurisdiction=effective_jurisdiction,
             case_id=case_id,
             response_language=response_language,
+            conversation_messages=session_memory.get("message_count", 0),
         )
 
         # ── Step 4: Parallel phase — Research + Document + Evidence ──────────
@@ -207,7 +216,7 @@ class WorkflowManager:
                 agents_used.append("research")
                 parallel_tasks["research"] = tg.create_task(
                     self._research_agent.run(
-                        question=clean_question,
+                        question=contextual_question,
                         memory=memory,
                         jurisdiction=effective_jurisdiction,
                         tenant_id=tenant_id,
@@ -287,6 +296,10 @@ class WorkflowManager:
         # ── Step 7: Confidence calculation ────────────────────────────────────
         reasoning_confidence = float(irac_data.get("confidence", 0.75))
         research_quality = self._score_research_quality(research_data)
+        research_quality["conversation_memory"] = {
+            "used": not session_memory.get("empty", True),
+            "message_count": session_memory.get("message_count", 0),
+        }
         verification_confidence = float(verification_data.get("_confidence", 1.0) if verification_data else 1.0)
         rejection_rate = float(verification_data.get("rejection_rate", 0.0) if verification_data else 0.0)
         guardrail_result = self._guardrails.assess(
@@ -397,6 +410,45 @@ class WorkflowManager:
         from agents.base_agent import AgentResult
         return AgentResult(data={}, agent_name="noop")
 
+    def _merge_memory(self, case_memory: dict[str, Any], session_memory: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(case_memory or {})
+        has_case_memory = not merged.get("empty")
+        has_session_memory = not session_memory.get("empty")
+
+        if not has_case_memory:
+            merged = {"empty": not has_session_memory}
+
+        if has_session_memory:
+            merged["conversation_summary"] = session_memory.get("conversation_summary", "")
+            merged["conversation_messages"] = session_memory.get("messages", [])
+            merged["current_user_state"] = session_memory.get("current_user_state", "")
+            merged["last_assistant_answer"] = session_memory.get("last_assistant_answer", "")
+            merged["session_message_count"] = session_memory.get("message_count", 0)
+            if not merged.get("facts_summary"):
+                merged["facts_summary"] = session_memory.get("conversation_summary", "")
+
+        return merged
+
+    def _contextual_question(self, question: str, session_memory: dict[str, Any]) -> str:
+        summary = str(session_memory.get("conversation_summary") or "").strip()
+        if not summary:
+            return question
+        return (
+            "Conversation context for retrieval only:\n"
+            f"{summary[:1800]}\n\n"
+            f"Current user question:\n{question}"
+        )
+
+    def _memory_hash(self, memory: dict[str, Any]) -> str:
+        relevant = {
+            "facts_summary": memory.get("facts_summary"),
+            "conversation_summary": memory.get("conversation_summary"),
+            "key_citations": memory.get("key_citations"),
+            "session_message_count": memory.get("session_message_count"),
+        }
+        raw = json.dumps(relevant, ensure_ascii=False, sort_keys=True, default=str)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
     def _agent_data_or_empty_research(self, result: Any, jurisdiction: str | None) -> dict[str, Any] | None:
         if result is None:
             return None
@@ -438,6 +490,8 @@ class WorkflowManager:
         urgency: str | None,
         model_id: str | None,
         response_language: str | None,
+        conversation_hash: str | None,
+        memory_hash: str | None,
     ) -> str:
         payload = {
             "question": question,
@@ -450,6 +504,8 @@ class WorkflowManager:
             "urgency": urgency,
             "model_id": model_id,
             "response_language": response_language,
+            "conversation_hash": conversation_hash,
+            "memory_hash": memory_hash,
         }
         raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()

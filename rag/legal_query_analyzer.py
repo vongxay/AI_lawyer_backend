@@ -200,7 +200,7 @@ class LegalQueryAnalyzer:
         memory: dict[str, Any] | None,
     ) -> list[str]:
         missing: list[str] = []
-        memory_has_facts = bool(memory and memory.get("facts_summary"))
+        memory_has_facts = bool(memory and (memory.get("facts_summary") or memory.get("conversation_summary")))
         if not memory_has_facts and len(question) < 120:
             missing.append("timeline and key dates")
             missing.append("documents or notices already received")

@@ -36,6 +36,7 @@ You are a senior legal advisor with 30+ years of experience in Thai and Lao law.
 
 For Lao PDR legal questions, prioritize legislation from the Lao PDR Official Gazette or ingested official Lao legal documents. Treat Lao PDR as a civil-law jurisdiction where statutes, regulations, decrees, and promulgated legislation are primary. Do not treat court decisions as binding precedent unless the retrieved context explicitly says so. If an English translation conflicts with Lao text, prefer the Lao official text and flag translation uncertainty.
 Use LEGAL QUESTION ANALYSIS as the issue-spotting and research brief. Authority hints inside that analysis are search hypotheses only; do not cite or rely on them unless the same authority appears in the retrieved legal context.
+Use CONVERSATION MEMORY only to understand prior facts, user goals, follow-up questions, and what has already been explained. Never treat conversation memory as legal authority.
 
 ═══ STRICT GENERATION RULES ═══
 1. ONLY use information from the CONTEXT block — never from training memory.
@@ -47,6 +48,7 @@ Use LEGAL QUESTION ANALYSIS as the issue-spotting and research brief. Authority 
 6. Return compact JSON only. Do not add markdown fences, commentary, or prose outside JSON.
 7. Keep output small: max 3 items per array, one sentence per item, statute text <= 240 characters, application.analysis <= 800 characters, reasoning_notes <= 120 characters.
 8. Return minified one-line JSON. Do not pretty-print, indent, or wrap in code fences.
+9. If the current question is a follow-up, resolve it using CONVERSATION MEMORY before answering.
 
 ═══ OUTPUT FORMAT (strict JSON) ═══
 {
@@ -113,6 +115,9 @@ _CONTEXT_TEMPLATE = """
 ═══ CASE MEMORY SUMMARY ═══
 {case_memory_summary}
 
+CONVERSATION MEMORY
+{conversation_memory}
+
 ═══ USER LEGAL QUERY ═══
 {question}
 """
@@ -142,7 +147,7 @@ class IracReasoningAgent(BaseAgent):
             memory=memory,
         )
 
-        missing_case_facts_reason = self._missing_case_facts_reason(question)
+        missing_case_facts_reason = self._missing_case_facts_reason(question, memory)
         if missing_case_facts_reason:
             log.info("reasoning.skipped_llm_missing_case_facts", reason=missing_case_facts_reason)
             parsed = self._insufficient_context_response(question, missing_case_facts_reason)
@@ -152,6 +157,7 @@ class IracReasoningAgent(BaseAgent):
         user_message = _CONTEXT_TEMPLATE.format(
             retrieved_documents=context["docs"],
             case_memory_summary=context["memory"],
+            conversation_memory=context["conversation"],
             question=question,
         )
 
@@ -238,22 +244,32 @@ class IracReasoningAgent(BaseAgent):
             doc_parts.append(f"[EVIDENCE]\n{json.dumps(evidence['items'], ensure_ascii=False)}")
 
         memory_parts: list[str] = []
+        conversation_parts: list[str] = []
         if not memory.get("empty"):
             if memory.get("facts_summary"):
                 memory_parts.append(f"Case facts: {memory['facts_summary']}")
             highlights = memory.get("memory_highlights") or {}
             if highlights.get("past_strategies"):
                 memory_parts.append(f"Past strategies: {highlights['past_strategies']}")
+            if memory.get("conversation_summary"):
+                conversation_parts.append(str(memory["conversation_summary"])[:2200])
+            if memory.get("current_user_state"):
+                conversation_parts.append(f"Current user state: {memory['current_user_state']}")
+            if memory.get("last_assistant_answer"):
+                conversation_parts.append(f"Last assistant answer: {memory['last_assistant_answer'][:700]}")
 
         return {
             "docs": "\n\n".join(doc_parts) or "No retrieved documents available.",
             "memory": "\n".join(memory_parts) or "No prior case memory.",
+            "conversation": "\n".join(conversation_parts) or "No prior conversation memory.",
         }
 
-    def _missing_case_facts_reason(self, question: str) -> str | None:
+    def _missing_case_facts_reason(self, question: str, memory: dict[str, Any] | None = None) -> str | None:
         settings = get_settings()
         clean = re.sub(r"\s+", " ", question).strip()
         if len(clean) >= settings.case_analysis_min_fact_chars:
+            return None
+        if memory and (memory.get("facts_summary") or memory.get("conversation_summary")):
             return None
 
         lowered = clean.casefold()
