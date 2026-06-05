@@ -11,7 +11,7 @@ since it holds agent instances + connection pools.
 """
 from __future__ import annotations
 
-from functools import lru_cache
+import asyncio
 from typing import Annotated
 
 from fastapi import Depends
@@ -23,14 +23,17 @@ from services.audit_service import AuditService, ExpertQueueService
 # ── Singletons (app-level, not request-level) ─────────────────────────────────
 
 _workflow_manager: WorkflowManager | None = None
+_workflow_lock = asyncio.Lock()
 
 
 async def get_workflow_manager() -> WorkflowManager:
     global _workflow_manager
     if _workflow_manager is None:
-        supabase = await get_supabase()
-        redis = await get_redis()
-        _workflow_manager = WorkflowManager(supabase=supabase, redis=redis)
+        async with _workflow_lock:
+            if _workflow_manager is None:
+                supabase = await get_supabase()
+                redis = await get_redis()
+                _workflow_manager = WorkflowManager(supabase=supabase, redis=redis)
     return _workflow_manager
 
 

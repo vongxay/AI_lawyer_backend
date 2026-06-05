@@ -13,7 +13,12 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+
+
+ChatQueryMode = Literal["general", "serious_case", "evidence", "document", "draft"]
+ResponseStyle = Literal["plain", "irac", "action_plan"]
+UrgencyLevel = Literal["normal", "urgent", "critical"]
 
 
 # ── Shared primitives ──────────────────────────────────────────────────────────
@@ -101,9 +106,31 @@ class RiskAnalysis(BaseModel):
 # ── Request schemas ────────────────────────────────────────────────────────────
 
 class LegalQueryRequest(BaseModel):
-    question: str = Field(min_length=3, max_length=5000)
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    question: str = Field(
+        min_length=3,
+        max_length=5000,
+        validation_alias=AliasChoices("question", "query"),
+    )
     case_id: str | None = None
+    session_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("session_id", "sessionId"),
+    )
     jurisdiction: str | None = None
+    model_id: str | None = None
+    query_mode: ChatQueryMode = Field(
+        default="general",
+        validation_alias=AliasChoices("query_mode", "queryMode", "mode"),
+    )
+    response_style: ResponseStyle = Field(
+        default="irac",
+        validation_alias=AliasChoices("response_style", "responseStyle"),
+    )
+    urgency: UrgencyLevel = "normal"
+    include_irac: bool = True
+    include_citations: bool = True
 
     @field_validator("question")
     @classmethod
@@ -111,9 +138,162 @@ class LegalQueryRequest(BaseModel):
         return v.strip()
 
 
+class ChatSessionCreate(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    title: str | None = Field(default=None, max_length=200)
+    legal_case_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("legal_case_id", "case_id", "caseId"),
+    )
+    query_type: str | None = Field(
+        default=None,
+        max_length=60,
+        validation_alias=AliasChoices("query_type", "queryType"),
+    )
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("title", "query_type")
+    @classmethod
+    def strip_optional_text(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        return value or None
+
+
+class ChatSessionUpdate(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    title: str | None = Field(default=None, max_length=200)
+    status: Literal["active", "closed", "escalated", "archived"] | None = None
+    query_type: str | None = Field(
+        default=None,
+        max_length=60,
+        validation_alias=AliasChoices("query_type", "queryType"),
+    )
+    metadata: dict[str, Any] | None = None
+
+    @field_validator("title", "query_type")
+    @classmethod
+    def strip_update_text(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        return value or None
+
+
+class ChatMessageCreate(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    role: Literal["user", "assistant", "ai", "system"]
+    content: str = Field(min_length=1, max_length=20000)
+    irac_output: dict[str, Any] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("irac_output", "irac"),
+    )
+    citations: list[dict[str, Any]] = Field(default_factory=list)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    agents_used: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("agents_used", "agentsUsed"),
+    )
+    model_used: str | None = Field(
+        default=None,
+        max_length=120,
+        validation_alias=AliasChoices("model_used", "modelUsed"),
+    )
+    latency_ms: int | None = Field(
+        default=None,
+        ge=0,
+        validation_alias=AliasChoices("latency_ms", "processing_time_ms", "processingTime"),
+    )
+    escalated: bool = False
+    escalation_reason: str | None = Field(
+        default=None,
+        max_length=1000,
+        validation_alias=AliasChoices("escalation_reason", "escalationReason"),
+    )
+
+    @field_validator("content")
+    @classmethod
+    def strip_content(cls, v: str) -> str:
+        return v.strip()
+
+
+class ChatMessageUpdate(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    content: str | None = Field(default=None, min_length=1, max_length=20000)
+    irac_output: dict[str, Any] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("irac_output", "irac"),
+    )
+    citations: list[dict[str, Any]] | None = None
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    agents_used: list[str] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("agents_used", "agentsUsed"),
+    )
+    model_used: str | None = Field(
+        default=None,
+        max_length=120,
+        validation_alias=AliasChoices("model_used", "modelUsed"),
+    )
+    latency_ms: int | None = Field(
+        default=None,
+        ge=0,
+        validation_alias=AliasChoices("latency_ms", "processing_time_ms", "processingTime"),
+    )
+    escalated: bool | None = None
+    escalation_reason: str | None = Field(
+        default=None,
+        max_length=1000,
+        validation_alias=AliasChoices("escalation_reason", "escalationReason"),
+    )
+
+    @field_validator("content")
+    @classmethod
+    def strip_updated_content(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        return value or None
+
+
+class CaseCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    title: str | None = Field(default=None, max_length=200)
+    case_type: str = Field(
+        default="general",
+        max_length=80,
+        validation_alias=AliasChoices("case_type", "type", "caseType"),
+    )
+    description: str | None = Field(default=None, max_length=5000)
+    jurisdiction: str = "laos"
+
+    @field_validator("title", "case_type", "description", "jurisdiction")
+    @classmethod
+    def strip_case_text(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        return value or None
+
+
 class DraftRequest(BaseModel):
-    prompt: str = Field(min_length=10, max_length=3000)
-    document_type: str | None = None
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    prompt: str = Field(
+        min_length=10,
+        max_length=3000,
+        validation_alias=AliasChoices("prompt", "context"),
+    )
+    document_type: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("document_type", "type"),
+    )
     jurisdiction: str | None = None
     language: Literal["TH", "EN", "LA"] = "TH"
 
@@ -121,9 +301,22 @@ class DraftRequest(BaseModel):
 class VerifyCitationsRequest(BaseModel):
     citations: list[CitationItem] = Field(min_length=1, max_length=50)
 
+    @field_validator("citations", mode="before")
+    @classmethod
+    def normalise_citations(cls, v: Any) -> Any:
+        if isinstance(v, list):
+            return [{"ref": item} if isinstance(item, str) else item for item in v]
+        return v
+
 
 class FeedbackRequest(BaseModel):
-    session_id: str = Field(min_length=1)
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    session_id: str = Field(
+        min_length=1,
+        validation_alias=AliasChoices("session_id", "query_id"),
+    )
+    message_id: str | None = None
     rating: int = Field(ge=1, le=5)
     comment: str | None = Field(default=None, max_length=2000)
     corrected_answer: str | None = Field(default=None, max_length=5000)
@@ -147,6 +340,12 @@ class LegalQueryResponse(BaseModel):
     model_config = {"extra": "ignore"}
 
     irac: IracPayload | dict[str, Any]    # dict fallback when LLM gives partial output
+    answer: str | None = None
+    query_type: str | None = None
+    query_mode: str | None = None
+    response_style: str | None = None
+    response_language: str | None = None
+    session_id: str | None = None
     citations: list[CitationItem] = Field(default_factory=list)
     citations_verified: bool = True
     confidence: float = Field(default=0.75, ge=0.0, le=1.0)
@@ -154,12 +353,16 @@ class LegalQueryResponse(BaseModel):
     processing_time_ms: int = 0
     escalated_to_expert: bool = False
     risk: RiskAnalysis | dict | None = None
+    document: dict[str, Any] | None = None
+    evidence: dict[str, Any] | None = None
+    answer_quality: dict[str, Any] = Field(default_factory=dict)
     disclaimer: str
 
 
 class DocumentAnalysisResponse(BaseModel):
     file_name: str
     file_type: str
+    text_length: int | None = None
     analysis: dict[str, Any]
 
 
@@ -170,8 +373,22 @@ class EvidenceAnalysisResponse(BaseModel):
     evidence_summary: str | None = None
 
 
+class CaseRecordResponse(BaseModel):
+    id: str
+    title: str
+    type: str = "general"
+    status: Literal["active", "closed", "settled"] = "active"
+    created_at: str | None = None
+    last_accessed: str | None = None
+
+
 class CaseMemoryResponse(BaseModel):
     case_id: str
+    summary: str = ""
+    key_facts: list[str] = Field(default_factory=list)
+    legal_issues: list[str] = Field(default_factory=list)
+    irac_history: list[dict[str, Any]] = Field(default_factory=list)
+    timeline: list[dict[str, Any]] = Field(default_factory=list)
     facts_summary: str | None = None
     jurisdiction: str = "TH"
     status: str = "active"
@@ -180,8 +397,10 @@ class CaseMemoryResponse(BaseModel):
 
 
 class TimelineEntry(BaseModel):
-    ts: int
-    question: str | None = None
+    id: str
+    event: str
+    date: str
+    type: Literal["query", "evidence", "document", "milestone"] = "query"
 
 
 class HealthResponse(BaseModel):

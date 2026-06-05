@@ -1,0 +1,29 @@
+[
+  {
+    "jurisdiction": "laos",
+    "language": "lo",
+    "category": "source_grounding",
+    "difficulty": "easy",
+    "question": "ເມື່ອຕອບຄຳຖາມກ່ຽວກັບກົດໝາຍລາວ ຄວນອ້າງອີງແຫຼ່ງໃດເປັນຫຼັກ?",
+    "expected_answer": "ຄວນອ້າງອີງຕົວບົດກົດໝາຍ ແລະເອກະສານທາງການຂອງ ສປປ ລາວ, ໂດຍໃຫ້ນ້ຳໜັກ Lao Official Gazette ຫຼືແຫຼ່ງທາງການທີ່ ingest ເຂົ້າລະບົບ.",
+    "required_citations": ["Lao Official Gazette"]
+  },
+  {
+    "jurisdiction": "laos",
+    "language": "lo",
+    "category": "contract",
+    "difficulty": "medium",
+    "question": "ຖ້າຄູ່ສັນຍາບໍ່ປະຕິບັດຕາມສັນຍາ ຄວນວິເຄາະປະເດັນໃດກ່ອນຕັດສິນໃຈຟ້ອງ?",
+    "expected_answer": "ຄວນກວດຂໍ້ຜູກພັນຕາມສັນຍາ, ການຜິດສັນຍາ, ຄວາມເສຍຫາຍ, ຫຼັກຖານ, ແລະມາດຕາກົດໝາຍທີ່ໃຊ້ບັງຄັບ.",
+    "required_citations": []
+  },
+  {
+    "jurisdiction": "laos",
+    "language": "lo",
+    "category": "confidence",
+    "difficulty": "medium",
+    "question": "ຖ້າລະບົບບໍ່ພົບກົດໝາຍລາວທີ່ກົງກັບຄຳຖາມ ຄວນຕອບຢ່າງໃດ?",
+    "expected_answer": "ຄວນບອກວ່າຂໍ້ມູນບໍ່ພຽງພໍ, ຫຼຸດ confidence, ແລະແນະນຳໃຫ້ກວດສອບກັບທະນາຍຄວາມ ຫຼືເອກະສານທາງການ.",
+    "required_citations": []
+  }
+]

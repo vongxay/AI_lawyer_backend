@@ -27,7 +27,12 @@ class Embedder:
         self._settings = get_settings()
 
     def _cache_key(self, text: str, multilingual: bool) -> str:
-        raw = f"{text[:500]}|multi={multilingual}"
+        model = (
+            self._settings.embedding_model_multilingual
+            if multilingual
+            else self._settings.embedding_model_en
+        )
+        raw = f"{model}|dims={self._settings.embedding_dims}|multi={multilingual}|{text[:1000]}"
         return f"embed:{hashlib.sha256(raw.encode()).hexdigest()}"
 
     async def embed(self, text: str, *, multilingual: bool = False) -> EmbeddingResult:

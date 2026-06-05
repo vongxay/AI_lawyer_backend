@@ -26,6 +26,16 @@ class AgentPlan:
 # ── Static plans per query type ────────────────────────────────────────────────
 # Matches Section 3.1 of blueprint exactly.
 AGENT_PLANS: dict[QueryType, AgentPlan] = {
+    "conversation": AgentPlan(
+        use_research=False,
+        use_reasoning=False,
+        use_verification=False,
+    ),
+    "clarification": AgentPlan(
+        use_research=False,
+        use_reasoning=False,
+        use_verification=False,
+    ),
     "legal_question": AgentPlan(
         use_research=True,
         use_reasoning=True,
@@ -65,19 +75,20 @@ class AgentSelector:
         *,
         force_document: bool = False,
         force_evidence: bool = False,
+        force_risk: bool = False,
     ) -> AgentPlan:
         """
         Return the agent plan for this query type.
         force_* flags override plan when caller knows files are present.
         """
         base = AGENT_PLANS[query_type]
-        if force_document or force_evidence:
+        if force_document or force_evidence or force_risk:
             return AgentPlan(
                 use_research=base.use_research,
                 use_reasoning=base.use_reasoning,
                 use_verification=base.use_verification,
                 use_document=base.use_document or force_document,
                 use_evidence=base.use_evidence or force_evidence,
-                use_risk=base.use_risk,
+                use_risk=base.use_risk or force_risk,
             )
         return base

@@ -17,6 +17,7 @@ from typing import Any
 
 from agents.base_agent import BaseAgent
 from core.config import get_settings
+from core.jurisdiction import infer_response_language, response_language_instruction
 from core.logging import get_logger
 
 log = get_logger(__name__)
@@ -28,36 +29,26 @@ You assess litigation risk and recommend optimal legal strategies.
 Return strict JSON:
 {
   "win_probability": 0.72,
-  "win_probability_basis": "why this probability — cite specific legal strengths/weaknesses",
+  "win_probability_basis": "why this probability; cite specific legal strengths/weaknesses from IRAC and retrieved authority",
   "risk_level": "LOW|MEDIUM|HIGH",
-  "cost_estimate_thb": {
-    "min": 50000,
-    "max": 200000,
-    "notes": "what drives cost variance"
+  "cost_estimate": {
+    "currency": "LAK|THB|USD|UNKNOWN",
+    "min": null,
+    "max": null,
+    "notes": "only estimate when facts and jurisdiction support it; otherwise explain why unknown"
   },
   "timeline_estimate_days": {
-    "negotiation": 30,
-    "litigation_first_instance": 365,
-    "appeal": 540
+    "option_name": 0
   },
   "strategic_options": [
     {
-      "name": "Negotiate and Settle",
-      "description": "brief description",
-      "pros": ["faster", "lower cost"],
-      "cons": ["may get less than full claim"],
-      "recommended_when": "when cost > potential recovery",
+      "name": "strategy option grounded in the specific facts",
+      "description": "brief description tied to the user's facts",
+      "pros": ["fact-specific advantage"],
+      "cons": ["fact-specific downside"],
+      "recommended_when": "specific condition from the case facts",
       "success_likelihood": "HIGH|MEDIUM|LOW",
-      "est_days": 45
-    },
-    {
-      "name": "Full Litigation",
-      "description": "proceed to court",
-      "pros": ["binding judgment", "full remedy possible"],
-      "cons": ["expensive", "time-consuming"],
-      "recommended_when": "when principle matters or amount is large",
-      "success_likelihood": "MEDIUM",
-      "est_days": 365
+      "est_days": null
     }
   ],
   "recommended_option": "option name",
@@ -81,9 +72,11 @@ class RiskStrategyAgent(BaseAgent):
         question: str,
         irac: dict,
         research: dict | None = None,
+        response_language: str | None = None,
         **kwargs,
     ) -> dict[str, Any]:
         settings = get_settings()
+        language = infer_response_language(question, response_language)
 
         # Extract relevant context from IRAC result
         irac_data = irac.get("irac", {})
@@ -94,12 +87,12 @@ class RiskStrategyAgent(BaseAgent):
 
         result = await self._call_llm(
             model=settings.model_risk,
-            system=_RISK_SYSTEM_PROMPT,
+            system=f"{_RISK_SYSTEM_PROMPT}\n\nLANGUAGE OVERRIDE:\n{response_language_instruction(language)}",
             user_message=context_summary,
-            max_tokens=2048,
+            max_tokens=settings.llm_max_tokens_risk,
         )
 
-        parsed = self._parse_strategy_response(result.text, conclusion)
+        parsed = self._parse_strategy_response(result.text, conclusion, language)
         parsed["_tokens"] = result.total_tokens
         parsed["_confidence"] = 0.80
 
@@ -144,32 +137,54 @@ class RiskStrategyAgent(BaseAgent):
 
         return "\n".join(parts)
 
-    def _parse_strategy_response(self, text: str, irac_conclusion: dict) -> dict[str, Any]:
+    def _parse_strategy_response(
+        self,
+        text: str,
+        irac_conclusion: dict,
+        language: str = "en",
+    ) -> dict[str, Any]:
         try:
             clean = re.sub(r"```(?:json)?\s*|\s*```", "", text.strip())
             return json.loads(clean)
         except (json.JSONDecodeError, ValueError):
             log.warning("risk.json_parse_failed")
-            # Graceful fallback using IRAC conclusion data
-            return {
-                "win_probability": irac_conclusion.get("win_probability", 0.5),
-                "risk_level": irac_conclusion.get("risk_level", "MEDIUM"),
-                "strategic_options": [
-                    {
-                        "name": "เจรจา / Negotiate",
-                        "pros": ["เร็ว", "ลดต้นทุน"],
-                        "cons": ["อาจได้ผลลัพธ์น้อยกว่า"],
-                        "est_days": 30,
-                        "success_likelihood": "MEDIUM",
-                    },
-                    {
-                        "name": "ดำเนินคดี / Litigate",
-                        "pros": ["ได้คำพิพากษา", "บังคับคดีได้"],
-                        "cons": ["ใช้เวลา", "ค่าใช้จ่ายสูง"],
-                        "est_days": 365,
-                        "success_likelihood": "MEDIUM",
-                    },
-                ],
-                "recommended_option": "เจรจา / Negotiate",
-                "immediate_actions": irac_conclusion.get("action_steps", []),
-            }
+            return self._safe_strategy_fallback(irac_conclusion, language)
+
+    def _safe_strategy_fallback(self, irac_conclusion: dict, language: str) -> dict[str, Any]:
+        """Never invent litigation strategy when the risk model output is unusable."""
+        action_steps = [
+            str(step).strip()
+            for step in (irac_conclusion.get("action_steps") or [])
+            if str(step).strip()
+        ]
+        if language == "lo":
+            basis = (
+                "ລະບົບວິເຄາະຄວາມສ່ຽງບໍ່ໄດ້ສົ່ງຜົນເປັນໂຄງສ້າງທີ່ໃຊ້ງານໄດ້, "
+                "ຈຶ່ງບໍ່ຄວນສ້າງຍຸດທະສາດຄະດີຂຶ້ນເອງ."
+            )
+            recommended = "ກວດຄືນຜົນວິເຄາະ IRAC ແລະ ໃຫ້ທະນາຍຄວາມກວດຂໍ້ເທັດຈິງກ່ອນຕັດສິນໃຈ."
+        elif language == "th":
+            basis = (
+                "ระบบวิเคราะห์ความเสี่ยงไม่ได้ส่งผลลัพธ์เป็นโครงสร้างที่ใช้งานได้ "
+                "จึงไม่ควรสร้างกลยุทธ์คดีขึ้นเอง"
+            )
+            recommended = "ตรวจทานผลวิเคราะห์ IRAC และให้ทนายความตรวจข้อเท็จจริงก่อนตัดสินใจ"
+        else:
+            basis = (
+                "The risk model did not return usable structured output, so the system did not invent litigation strategy."
+            )
+            recommended = "Review the IRAC analysis and have a qualified lawyer check the facts before deciding."
+
+        return {
+            "win_probability": irac_conclusion.get("win_probability", 0.0),
+            "win_probability_basis": basis,
+            "risk_level": irac_conclusion.get("risk_level", "MEDIUM"),
+            "cost_estimate": {"currency": "UNKNOWN", "min": None, "max": None, "notes": basis},
+            "timeline_estimate_days": {},
+            "strategic_options": [],
+            "recommended_option": recommended,
+            "recommended_option_rationale": basis,
+            "critical_deadlines": [],
+            "preserve_evidence_checklist": [],
+            "immediate_actions": action_steps,
+        }

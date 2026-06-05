@@ -72,6 +72,13 @@ def workflow() -> WorkflowManager:
 
     wf._case_memory.get = AsyncMock(return_value={"empty": True})
     wf._case_memory.update = AsyncMock()
+    wf._session_memory.get = AsyncMock(return_value={
+        "empty": True,
+        "messages": [],
+        "conversation_summary": "",
+        "cache_key": "empty",
+        "message_count": 0,
+    })
     wf._audit.log_event = AsyncMock()
     wf._expert_queue.enqueue = AsyncMock()
 
@@ -90,6 +97,38 @@ class TestWorkflowManager:
         assert "research" in result.agents_used
         assert "reasoning" in result.agents_used
         assert "verification" in result.agents_used
+
+    async def test_conversation_greeting_bypasses_rag_and_reasoning(self, workflow):
+        result = await workflow.orchestrate(
+            question="\u0e2a\u0e1a\u0e32\u0e22\u0e14\u0e35\u0e44\u0e2b\u0e21",
+            case_id=None,
+        )
+
+        assert result.response["query_type"] == "conversation"
+        assert result.response["answer"]
+        assert result.agents_used == ["conversation"]
+        workflow._research_agent.run.assert_not_called()
+        workflow._reasoning_agent.run.assert_not_called()
+        workflow._verification_agent.run.assert_not_called()
+        workflow._case_memory.update.assert_not_called()
+        workflow._audit.log_event.assert_called_once()
+
+    async def test_under_specified_case_asks_clarification_before_rag(self, workflow):
+        result = await workflow.orchestrate(
+            question="\u0e1c\u0e21\u0e42\u0e14\u0e19\u0e42\u0e01\u0e07\u0e40\u0e07\u0e34\u0e19\u0e15\u0e49\u0e2d\u0e07\u0e17\u0e33\u0e22\u0e31\u0e07\u0e44\u0e07",
+            case_id=None,
+        )
+
+        assert result.response["query_type"] == "clarification"
+        assert result.response["answer"]
+        assert result.response["answer_quality"]["rag_used"] is False
+        assert result.response["answer_quality"]["intent_route"]["needs_clarification"] is True
+        assert result.agents_used == ["intent_router"]
+        workflow._research_agent.run.assert_not_called()
+        workflow._reasoning_agent.run.assert_not_called()
+        workflow._verification_agent.run.assert_not_called()
+        workflow._case_memory.update.assert_not_called()
+        workflow._audit.log_event.assert_called_once()
 
     async def test_case_memory_updated_after_orchestration(self, workflow):
         await workflow.orchestrate(question="test", case_id="case-123")
@@ -121,7 +160,7 @@ class TestWorkflowManager:
         research_call = workflow._research_agent.run.call_args
         clean_question = research_call.kwargs["question"]
         assert "0812345678" not in clean_question
-        assert "[REDACTED_PHONE]" in clean_question
+        assert "[REDACTED_PHONE_TH]" in clean_question
 
     async def test_risk_agent_invoked_for_case_strategy(self, workflow):
         """case_strategy queries should invoke risk agent."""
@@ -129,6 +168,8 @@ class TestWorkflowManager:
             question="ควรฟ้องหรือเจรจาดี อยากรู้โอกาสชนะ",  # triggers case_strategy
             case_id=None,
         )
+        assert result.response["query_type"] == "case_strategy"
+        assert result.response["response_style"] == "action_plan"
         assert "risk" in result.agents_used
 
     async def test_document_agent_invoked_when_text_provided(self, workflow):
@@ -153,3 +194,29 @@ class TestWorkflowManager:
         result = await workflow.orchestrate(question="test", case_id=None)
         assert result.session_id
         assert len(result.session_id) == 36  # UUID4 format
+
+    async def test_session_memory_is_used_for_follow_up_context(self, workflow):
+        workflow._session_memory.get = AsyncMock(return_value={
+            "empty": False,
+            "messages": [
+                {"role": "user", "content": "User owns industrial land."},
+                {"role": "assistant", "content": "Answered about land construction permits."},
+            ],
+            "conversation_summary": "User: User owns industrial land.\nAssistant: Answered about land construction permits.",
+            "current_user_state": "User owns industrial land.",
+            "last_assistant_answer": "Answered about land construction permits.",
+            "cache_key": "conversation-hash",
+            "message_count": 2,
+        })
+
+        result = await workflow.orchestrate(
+            question="What should I do next?",
+            case_id=None,
+            session_id="11111111-1111-1111-1111-111111111111",
+        )
+
+        research_question = workflow._research_agent.run.call_args.kwargs["question"]
+        reasoning_memory = workflow._reasoning_agent.run.call_args.kwargs["memory"]
+        assert "Conversation context for retrieval only" in research_question
+        assert "industrial land" in reasoning_memory["conversation_summary"]
+        assert result.response["answer_quality"]["conversation_memory"]["used"] is True

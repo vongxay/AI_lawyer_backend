@@ -141,7 +141,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
             model=model,
             system=_EVIDENCE_SYSTEM_PROMPT,
             user_message=user_msg,
-            max_tokens=2048,
+            max_tokens=get_settings().llm_max_tokens_evidence,
         )
         parsed = self._parse_evidence_response(result.text)
         parsed.update({"filename": ev_file.filename, "_tokens": result.total_tokens})
@@ -149,7 +149,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
 
     async def _analyze_audio(self, ev_file: EvidenceFile, question: str, ctx: str, model: str) -> dict:
         # In production: first run Whisper transcription via audio_service
-        # Here we analyse with available text content or stub transcript
+        # Until transcription is connected, only analyse caller-provided text content.
         transcript = ev_file.content if isinstance(ev_file.content, str) else "[Audio file — transcription required]"
         user_msg = (
             f"Legal question: {question}{ctx}\n\n"
@@ -160,7 +160,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
             model=model,
             system=_AUDIO_ANALYSIS_PROMPT,
             user_message=user_msg,
-            max_tokens=2048,
+            max_tokens=get_settings().llm_max_tokens_evidence,
         )
         parsed = self._parse_evidence_response(result.text)
         parsed.update({
@@ -181,7 +181,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
             model=model,
             system=_EVIDENCE_SYSTEM_PROMPT,
             user_message=user_msg,
-            max_tokens=2048,
+            max_tokens=get_settings().llm_max_tokens_evidence,
         )
         parsed = self._parse_evidence_response(result.text)
         parsed.update({"filename": ev_file.filename, "_tokens": result.total_tokens})

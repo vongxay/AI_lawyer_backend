@@ -12,8 +12,7 @@ Design principles:
 """
 from __future__ import annotations
 
-import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import AsyncIterator
 
 from tenacity import (
@@ -24,10 +23,75 @@ from tenacity import (
 )
 
 from core.config import get_settings
-from core.exceptions import ExternalServiceError
+from core.exceptions import ExternalServiceError, ProviderNotConfiguredError
 from core.logging import get_logger
 
 log = get_logger(__name__)
+
+
+def _has_real_api_key(value: str | None) -> bool:
+    if not value:
+        return False
+    stripped = value.strip()
+    return bool(stripped) and "..." not in stripped and not stripped.endswith("-")
+
+
+def _is_openrouter_api_key(value: str | None) -> bool:
+    return bool(value and value.strip().startswith("sk-or-"))
+
+
+def _is_openrouter_base_url(value: str | None) -> bool:
+    return bool(value and "openrouter.ai" in value.lower())
+
+
+def _clean_base_url(value: str | None) -> str | None:
+    if not value:
+        return None
+    return value.strip().rstrip("/") or None
+
+
+def _openrouter_headers() -> dict[str, str]:
+    settings = get_settings()
+    headers: dict[str, str] = {}
+    if settings.openrouter_site_url:
+        headers["HTTP-Referer"] = settings.openrouter_site_url
+    if settings.openrouter_app_title:
+        headers["X-OpenRouter-Title"] = settings.openrouter_app_title
+    return headers
+
+
+def _is_openai_family_model(model: str) -> bool:
+    return model.lower().startswith(("gpt", "o1", "o3", "o4", "chatgpt"))
+
+
+def _is_anthropic_family_model(model: str) -> bool:
+    return model.lower().startswith("claude")
+
+
+def _looks_like_openrouter_model(model: str) -> bool:
+    return "/" in model
+
+
+def _normalise_openrouter_model(model: str) -> str:
+    if _looks_like_openrouter_model(model):
+        return model
+    if _is_openai_family_model(model):
+        return f"openai/{model}"
+    if _is_anthropic_family_model(model):
+        return f"anthropic/{model}"
+    return model
+
+
+def _normalise_openrouter_embedding_model(model: str) -> str:
+    if "/" in model:
+        return model
+    if model.startswith("text-embedding-"):
+        return f"openai/{model}"
+    return model
+
+
+def _base_model_name(model: str) -> str:
+    return model.rsplit("/", 1)[-1]
 
 
 # ── Result types ───────────────────────────────────────────────────────────────
@@ -74,7 +138,7 @@ class _AnthropicProvider:
         temperature: float = 0.1,
     ) -> LlmResult:
         msgs = [{"role": m.role, "content": m.content} for m in messages]
-        kwargs: dict = dict(model=model, messages=msgs, max_tokens=max_tokens)
+        kwargs: dict = dict(model=model, messages=msgs, max_tokens=max_tokens, temperature=temperature)
         if system:
             kwargs["system"] = system
 
@@ -109,9 +173,24 @@ class _AnthropicProvider:
 
 
 class _OpenAIProvider:
-    def __init__(self, api_key: str) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        base_url: str | None = None,
+        default_headers: dict[str, str] | None = None,
+        provider_name: str = "openai",
+    ) -> None:
         import openai
-        self._client = openai.AsyncOpenAI(api_key=api_key)
+
+        kwargs: dict = {"api_key": api_key}
+        if base_url:
+            kwargs["base_url"] = base_url
+        if default_headers:
+            kwargs["default_headers"] = default_headers
+
+        self._client = openai.AsyncOpenAI(**kwargs)
+        self._provider_name = provider_name
 
     @retry(
         retry=retry_if_exception_type(Exception),
@@ -146,7 +225,7 @@ class _OpenAIProvider:
             model=model,
             input_tokens=usage.prompt_tokens if usage else 0,
             output_tokens=usage.completion_tokens if usage else 0,
-            provider="openai",
+            provider=self._provider_name,
         )
 
     async def stream(
@@ -171,28 +250,7 @@ class _OpenAIProvider:
                 yield delta
 
 
-# ── Stub for dev / testing ────────────────────────────────────────────────────
 
-class _StubProvider:
-    """Used when no API keys are configured (development / unit tests)."""
-
-    async def generate(self, *, model: str, messages: list[Message], **kwargs) -> LlmResult:
-        prompt_preview = messages[-1].content[:80] if messages else ""
-        log.debug("llm.stub.generate", model=model, preview=prompt_preview)
-        return LlmResult(
-            text=f"[STUB:{model}] Response for: {prompt_preview}",
-            model=model,
-            provider="stub",
-        )
-
-    async def stream(self, *, model: str, messages: list[Message], **kwargs) -> AsyncIterator[str]:
-        result = await self.generate(model=model, messages=messages)
-        for word in result.text.split():
-            yield word + " "
-            await asyncio.sleep(0.01)
-
-
-# ── Public LlmService ─────────────────────────────────────────────────────────
 
 class LlmService:
     """
@@ -201,27 +259,111 @@ class LlmService:
     Model prefix mapping:
         claude-*  → Anthropic
         gpt-*     → OpenAI
-        (anything else in dev) → Stub
+        unknown   → provider-not-configured error
     """
 
     def __init__(self) -> None:
         settings = get_settings()
-        self._anthropic: _AnthropicProvider | _StubProvider | None = None
-        self._openai: _OpenAIProvider | _StubProvider | None = None
+        self._anthropic: _AnthropicProvider | None = None
+        self._openai: _OpenAIProvider | None = None
+        self._openrouter: _OpenAIProvider | None = None
 
-        if settings.anthropic_api_key:
+        if _has_real_api_key(settings.anthropic_api_key):
             self._anthropic = _AnthropicProvider(settings.anthropic_api_key)
-        if settings.openai_api_key:
-            self._openai = _OpenAIProvider(settings.openai_api_key)
 
-        self._stub = _StubProvider()
+        if _has_real_api_key(settings.openai_api_key):
+            base_url = _clean_base_url(settings.openai_base_url)
+            if _is_openrouter_api_key(settings.openai_api_key) or _is_openrouter_base_url(base_url):
+                self._openrouter = _OpenAIProvider(
+                    settings.openai_api_key,
+                    base_url=base_url or _clean_base_url(settings.openrouter_base_url),
+                    default_headers=_openrouter_headers(),
+                    provider_name="openrouter",
+                )
+            else:
+                self._openai = _OpenAIProvider(
+                    settings.openai_api_key,
+                    base_url=base_url,
+                    provider_name="openai-compatible" if base_url else "openai",
+                )
+
+        if _has_real_api_key(settings.openrouter_api_key):
+            self._openrouter = _OpenAIProvider(
+                settings.openrouter_api_key,
+                base_url=_clean_base_url(settings.openrouter_base_url),
+                default_headers=_openrouter_headers(),
+                provider_name="openrouter",
+            )
+
 
     def _get_provider(self, model: str):
-        if model.startswith("claude"):
-            return self._anthropic or self._stub
-        if model.startswith("gpt") or model.startswith("o1"):
-            return self._openai or self._stub
-        return self._stub
+        if _looks_like_openrouter_model(model):
+            return model, self._openrouter
+        if _is_anthropic_family_model(model):
+            if self._anthropic is not None:
+                return model, self._anthropic
+            return _normalise_openrouter_model(model), self._openrouter
+        if _is_openai_family_model(model):
+            if self._openai is not None:
+                return model, self._openai
+            return _normalise_openrouter_model(model), self._openrouter
+        return None
+
+    def _required_env_for_model(self, model: str) -> list[str]:
+        if _looks_like_openrouter_model(model):
+            return ["OPENROUTER_API_KEY", "OPENAI_API_KEY"]
+        if _is_anthropic_family_model(model):
+            return ["ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY"]
+        if _is_openai_family_model(model):
+            return ["OPENAI_API_KEY", "OPENROUTER_API_KEY"]
+        return ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"]
+
+    def _cap_max_tokens(self, requested: int) -> int:
+        settings = get_settings()
+        cap = max(1, int(settings.llm_max_tokens_absolute))
+        effective = max(1, min(int(requested), cap))
+        if effective != requested:
+            log.warning("llm.max_tokens.capped", requested_max_tokens=requested, max_tokens=effective)
+        return effective
+
+    def _resolve_model_and_provider(self, model: str):
+        resolved = self._get_provider(model)
+        if resolved is not None:
+            effective_model, provider = resolved
+            if provider is not None:
+                return effective_model, provider
+
+        settings = get_settings()
+        fallback_model = settings.model_economy
+        fallback_resolved = self._get_provider(fallback_model)
+        if (
+            settings.llm_fallback_to_economy_model
+            and fallback_resolved is not None
+            and fallback_resolved[1] is not None
+            and fallback_model != model
+        ):
+            log.warning(
+                "llm.model_fallback",
+                requested_model=model,
+                fallback_model=fallback_model,
+            )
+            return fallback_resolved
+
+        return model, None
+
+    def _fallback_model_and_provider(self, failed_model: str):
+        settings = get_settings()
+        if not settings.llm_fallback_to_economy_model:
+            return None, None
+
+        fallback_model = settings.model_economy
+        if not fallback_model or fallback_model == failed_model:
+            return None, None
+
+        resolved = self._get_provider(fallback_model)
+        if resolved is None or resolved[1] is None:
+            return None, None
+        return resolved
 
     async def generate(
         self,
@@ -232,26 +374,70 @@ class LlmService:
         max_tokens: int = 4096,
         temperature: float = 0.1,
     ) -> LlmResult:
-        provider = self._get_provider(model)
+        effective_model, provider = self._resolve_model_and_provider(model)
+        if provider is None:
+            raise ProviderNotConfiguredError(
+                "No real LLM API key is configured for this model.",
+                details={"model": model, "required_env": self._required_env_for_model(effective_model)},
+            )
+        effective_max_tokens = self._cap_max_tokens(max_tokens)
         try:
             result = await provider.generate(
-                model=model,
+                model=effective_model,
                 messages=messages,
                 system=system,
-                max_tokens=max_tokens,
+                max_tokens=effective_max_tokens,
                 temperature=temperature,
             )
             log.info(
                 "llm.generate.ok",
-                model=model,
+                model=effective_model,
+                requested_model=model,
                 provider=result.provider,
                 tokens_in=result.input_tokens,
                 tokens_out=result.output_tokens,
             )
             return result
         except Exception as exc:
-            log.error("llm.generate.failed", model=model, error=str(exc))
-            raise ExternalServiceError(f"LLM call failed for model {model}: {exc}") from exc
+            fallback_model, fallback_provider = self._fallback_model_and_provider(effective_model)
+            if fallback_provider is not None and fallback_model:
+                log.warning(
+                    "llm.generate.fallback_after_error",
+                    model=effective_model,
+                    fallback_model=fallback_model,
+                    error=str(exc),
+                )
+                try:
+                    result = await fallback_provider.generate(
+                        model=fallback_model,
+                        messages=messages,
+                        system=system,
+                        max_tokens=effective_max_tokens,
+                        temperature=temperature,
+                    )
+                    log.info(
+                        "llm.generate.fallback_ok",
+                        model=fallback_model,
+                        requested_model=model,
+                        provider=result.provider,
+                        tokens_in=result.input_tokens,
+                        tokens_out=result.output_tokens,
+                    )
+                    return result
+                except Exception as fallback_exc:
+                    log.error(
+                        "llm.generate.fallback_failed",
+                        model=effective_model,
+                        fallback_model=fallback_model,
+                        error=str(fallback_exc),
+                    )
+                    raise ExternalServiceError(
+                        f"LLM call failed for model {effective_model}; fallback {fallback_model} also failed: "
+                        f"{fallback_exc}"
+                    ) from fallback_exc
+
+            log.error("llm.generate.failed", model=effective_model, requested_model=model, error=str(exc))
+            raise ExternalServiceError(f"LLM call failed for model {effective_model}: {exc}") from exc
 
     async def stream(
         self,
@@ -261,9 +447,52 @@ class LlmService:
         system: str | None = None,
         max_tokens: int = 4096,
     ) -> AsyncIterator[str]:
-        provider = self._get_provider(model)
-        async for chunk in provider.stream(model=model, messages=messages, system=system, max_tokens=max_tokens):
-            yield chunk
+        effective_model, provider = self._resolve_model_and_provider(model)
+        if provider is None:
+            raise ProviderNotConfiguredError(
+                "No real LLM API key is configured for streaming.",
+                details={"model": model, "required_env": self._required_env_for_model(effective_model)},
+            )
+        effective_max_tokens = self._cap_max_tokens(max_tokens)
+        try:
+            async for chunk in provider.stream(
+                model=effective_model,
+                messages=messages,
+                system=system,
+                max_tokens=effective_max_tokens,
+            ):
+                yield chunk
+        except Exception as exc:
+            fallback_model, fallback_provider = self._fallback_model_and_provider(effective_model)
+            if fallback_provider is not None and fallback_model:
+                log.warning(
+                    "llm.stream.fallback_after_error",
+                    model=effective_model,
+                    fallback_model=fallback_model,
+                    error=str(exc),
+                )
+                try:
+                    async for chunk in fallback_provider.stream(
+                        model=fallback_model,
+                        messages=messages,
+                        system=system,
+                        max_tokens=effective_max_tokens,
+                    ):
+                        yield chunk
+                    return
+                except Exception as fallback_exc:
+                    log.error(
+                        "llm.stream.fallback_failed",
+                        model=effective_model,
+                        fallback_model=fallback_model,
+                        error=str(fallback_exc),
+                    )
+                    raise ExternalServiceError(
+                        f"LLM stream failed for model {effective_model}; fallback {fallback_model} also failed: "
+                        f"{fallback_exc}"
+                    ) from fallback_exc
+
+            raise ExternalServiceError(f"LLM stream failed for model {effective_model}: {exc}") from exc
 
 
 # ── Embedding service ─────────────────────────────────────────────────────────
@@ -280,25 +509,71 @@ class EmbeddingService:
 
     def __init__(self) -> None:
         settings = get_settings()
-        self._api_key = settings.openai_api_key
+        self._api_key: str | None = None
         self._model_en = settings.embedding_model_en
         self._dims = settings.embedding_dims
+        self._client = None
+        self._provider_name = "openai"
+
+        if _has_real_api_key(settings.openrouter_api_key):
+            self._api_key = settings.openrouter_api_key
+            self._provider_name = "openrouter"
+            base_url = _clean_base_url(settings.openrouter_base_url)
+            default_headers = _openrouter_headers()
+        elif _has_real_api_key(settings.openai_api_key):
+            self._api_key = settings.openai_api_key
+            base_url = _clean_base_url(settings.openai_base_url)
+            if _is_openrouter_api_key(self._api_key) or _is_openrouter_base_url(base_url):
+                self._provider_name = "openrouter"
+                base_url = base_url or _clean_base_url(settings.openrouter_base_url)
+                default_headers = _openrouter_headers()
+            else:
+                self._provider_name = "openai-compatible" if base_url else "openai"
+                default_headers = None
+        else:
+            base_url = None
+            default_headers = None
+
+        if self._api_key:
+            import openai
+
+            kwargs: dict = {"api_key": self._api_key}
+            if base_url:
+                kwargs["base_url"] = base_url
+            if default_headers:
+                kwargs["default_headers"] = default_headers
+            self._client = openai.AsyncOpenAI(**kwargs)
 
     async def embed(self, text: str, *, multilingual: bool = False) -> EmbeddingResult:
-        if not self._api_key:
-            # Deterministic stub vector for dev
-            dim = self._dims
-            val = float((sum(text.encode()) % 1000) / 1000.0)
-            return EmbeddingResult(vector=[val] * dim, model="stub-embedding")
+        results = await self.embed_many([text], multilingual=multilingual)
+        return results[0]
 
-        import openai
-        client = openai.AsyncOpenAI(api_key=self._api_key)
+    async def embed_many(self, texts: list[str], *, multilingual: bool = False) -> list[EmbeddingResult]:
+        if not self._api_key:
+            raise ProviderNotConfiguredError(
+                "No real embedding API key is configured.",
+                details={"required_env": ["OPENAI_API_KEY"]},
+            )
+        if not texts:
+            return []
+
         settings = get_settings()
         model = settings.embedding_model_multilingual if multilingual else self._model_en
-        response = await client.embeddings.create(input=text, model=model)
-        data = response.data[0]
-        return EmbeddingResult(
-            vector=data.embedding,
-            model=model,
-            tokens=response.usage.total_tokens,
-        )
+        if self._provider_name == "openrouter":
+            model = _normalise_openrouter_embedding_model(model)
+        request: dict = {"input": texts, "model": model}
+        if self._dims and _base_model_name(model).startswith("text-embedding-3"):
+            request["dimensions"] = int(self._dims)
+
+        response = await self._client.embeddings.create(**request)
+        usage = getattr(response, "usage", None)
+        total_tokens = int(getattr(usage, "total_tokens", 0) or 0)
+        per_item_tokens = total_tokens // max(1, len(response.data))
+        return [
+            EmbeddingResult(
+                vector=item.embedding,
+                model=model,
+                tokens=per_item_tokens,
+            )
+            for item in sorted(response.data, key=lambda item: getattr(item, "index", 0))
+        ]

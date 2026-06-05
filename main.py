@@ -13,23 +13,40 @@ Design:
 from __future__ import annotations
 
 import time
+import uuid
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
+try:
+    import sentry_sdk
+    SENTRY_AVAILABLE = True
+except ImportError:
+    SENTRY_AVAILABLE = False
+
+import structlog.contextvars
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api import admin as admin_router
+from api import admin_compat as admin_compat_router
+from api import analytics as analytics_router
+from api import auth as auth_router
+from api import billing as billing_router
+from api import dashboard as dashboard_router
 from api import documents as documents_router
 from api import evidence as evidence_router
+from api import evaluation as evaluation_router
 from api import feedback as feedback_router
+from api import knowledge as knowledge_router
 from api import legal as legal_router
 from api import memory as memory_router
+from api import users as users_router
 from core.config import get_settings
 from core.database import close_connections, ping_redis, ping_supabase
 from core.exceptions import register_exception_handlers
 from core.logging import configure_logging, get_logger
+from middleware.rate_limiter import RateLimiterMiddleware
 
 log = get_logger(__name__)
 
@@ -40,6 +57,19 @@ log = get_logger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     configure_logging(settings.log_level)
+
+    # Initialize Sentry for production error tracking
+    if settings.is_production() and SENTRY_AVAILABLE and settings.sentry_dsn:
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            traces_sample_rate=0.1,  # 10% sampling for performance monitoring
+            profiles_sample_rate=0.1,
+            environment=settings.app_env,
+            release=f"ai-lawyer@{settings.app_version}",
+        )
+        log.info("sentry.initialized")
+    elif settings.is_production() and not SENTRY_AVAILABLE:
+        log.warning("sentry.not_installed", reason="sentry-sdk not installed but running in production")
 
     log.info(
         "app.startup",
@@ -71,9 +101,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 # ── Request logging middleware ─────────────────────────────────────────────────
 
 async def _request_logging_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(request_id=request_id)
+
     started = time.perf_counter()
     response = await call_next(request)
     duration_ms = int((time.perf_counter() - started) * 1000)
+    response.headers["X-Request-ID"] = request_id
     log.info(
         "http.request",
         method=request.method,
@@ -82,6 +117,38 @@ async def _request_logging_middleware(request: Request, call_next):
         duration_ms=duration_ms,
     )
     return response
+
+
+async def _security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    return response
+
+
+async def _body_size_limit_middleware(request: Request, call_next):
+    settings = get_settings()
+    limit_bytes = settings.max_request_body_mb * 1024 * 1024
+    content_length = request.headers.get("content-length")
+
+    if content_length:
+        try:
+            body_bytes = int(content_length)
+        except ValueError:
+            body_bytes = 0
+
+        if body_bytes > limit_bytes:
+            return JSONResponse(
+                status_code=413,
+                content={
+                    "error": "REQUEST_TOO_LARGE",
+                    "message": f"Request body exceeds {settings.max_request_body_mb}MB limit.",
+                },
+            )
+
+    return await call_next(request)
 
 
 # ── App factory ────────────────────────────────────────────────────────────────
@@ -106,9 +173,15 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
     )
+    
+    # Rate limiting middleware (lazy initialization - doesn't need Redis at startup)
+    app.add_middleware(RateLimiterMiddleware, redis=None)
+    
+    app.middleware("http")(_body_size_limit_middleware)
+    app.middleware("http")(_security_headers_middleware)
     app.middleware("http")(_request_logging_middleware)
 
     # ── Exception handlers ─────────────────────────────────────────────────────
@@ -120,6 +193,14 @@ def create_app() -> FastAPI:
     app.include_router(evidence_router.router)
     app.include_router(memory_router.router)
     app.include_router(feedback_router.router)
+    app.include_router(auth_router.router)
+    app.include_router(billing_router.router)
+    app.include_router(dashboard_router.router)
+    app.include_router(evaluation_router.router)
+    app.include_router(knowledge_router.router)
+    app.include_router(users_router.router)
+    app.include_router(analytics_router.router)
+    app.include_router(admin_compat_router.router)
     app.include_router(admin_router.router)
 
     # ── System endpoints ───────────────────────────────────────────────────────
@@ -128,10 +209,14 @@ def create_app() -> FastAPI:
     async def health() -> dict:
         redis_ok = await ping_redis()
         supabase_ok = await ping_supabase()
-        overall = "ok" if (redis_ok and supabase_ok) else "degraded"
+        redis_required = settings.redis_required or settings.is_production()
+        redis_available = redis_ok or not redis_required
+        overall = "ok" if (redis_available and supabase_ok) else "degraded"
         return {
             "status": overall,
             "redis": redis_ok,
+            "redis_required": redis_required,
+            "redis_mode": "redis" if redis_ok else ("memory_fallback" if not redis_required else "unavailable"),
             "supabase": supabase_ok,
             "version": settings.app_version,
         }
