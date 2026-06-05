@@ -19,6 +19,21 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
+LAO_LAND = "\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99"
+LAO_ARTICLE = "\u0ea1\u0eb2\u0e94\u0e95\u0eb2"
+LAO_RIGHT = "\u0eaa\u0eb4\u0e94"
+LAO_LAND_USE_RIGHT = "\u0eaa\u0eb4\u0e94\u0e99\u0eb3\u0ec3\u0e8a\u0ec9"
+LAO_LAND_USE_RIGHT_ALT = "\u0eaa\u0eb4\u0e94\u0e99\u0ecd\u0eb2\u0ec3\u0e8a\u0ec9"
+LAO_LAND_USE_RIGHT_OCR = "\u0eaa\u0eb4\u0e94\u0e99\u0eb2\u0ecd\u0ec3\u0e8a\u0ec9"
+LAO_PROTECTION = "\u0e9b\u0ebb\u0e81\u0e9b\u0ec9\u0ead\u0e87"
+LAO_GUARD_RIGHT = "\u0eaa\u0eb4\u0e94\u0e9b\u0ebb\u0e81\u0e9b\u0eb1\u0e81\u0eae\u0eb1\u0e81\u0eaa\u0eb2"
+LAO_USE_RIGHT = "\u0eaa\u0eb4\u0e94\u0ec3\u0e8a\u0ec9"
+LAO_BENEFIT_RIGHT = "\u0eaa\u0eb4\u0e94\u0ec4\u0e94\u0ec9\u0eae\u0eb1\u0e9a"
+LAO_BENEFITS = "\u0e9c\u0ebb\u0e99\u0e9b\u0eb0\u0ec2\u0eab\u0e8d\u0e94"
+LAO_TRANSFER_RIGHT = "\u0eaa\u0eb4\u0e94\u0ec2\u0ead\u0e99"
+LAO_INHERIT_RIGHT = "\u0eaa\u0eb4\u0e94\u0eaa\u0eb7\u0e9a\u0e97\u0ead\u0e94"
+THAI_ARTICLE = "\u0e21\u0e32\u0e15\u0e23\u0e32"
+
 
 class Retriever:
     def __init__(self, supabase: "AsyncClient | None" = None) -> None:
@@ -67,6 +82,20 @@ class Retriever:
             top_k=top_k,
         )
         if chunk_rows:
+            if self._should_supplement_keyword(query):
+                keyword_rows = await self._direct_keyword_search(
+                    query=query,
+                    jurisdiction=jurisdiction,
+                    top_k=top_k,
+                )
+                if keyword_rows:
+                    log.info(
+                        "retriever.chunk_search.keyword_supplement",
+                        chunk_results=len(chunk_rows),
+                        keyword_results=len(keyword_rows),
+                        jurisdiction=jurisdiction,
+                    )
+                    return self._merge_rows(keyword_rows, chunk_rows, top_k)
             log.info("retriever.chunk_search.ok", results=len(chunk_rows), jurisdiction=jurisdiction)
             return chunk_rows
 
@@ -89,6 +118,32 @@ class Retriever:
             jurisdiction=jurisdiction,
             top_k=top_k,
         )
+
+    def _should_supplement_keyword(self, query: str) -> bool:
+        terms = self._keyword_terms(query)
+        return bool(self._article_targets_from_terms(terms)) or self._is_land_use_right_protection_query(query.casefold())
+
+    def _merge_rows(
+        self,
+        primary: list[dict[str, Any]],
+        secondary: list[dict[str, Any]],
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        merged: dict[str, dict[str, Any]] = {}
+        for row in [*primary, *secondary]:
+            key = str(row.get("chunk_id") or row.get("id") or f"{row.get('title')}|{str(row.get('content') or '')[:120]}")
+            existing = merged.get(key)
+            if not existing or self._row_score(row) > self._row_score(existing):
+                merged[key] = row
+        return sorted(merged.values(), key=self._row_score, reverse=True)[:top_k]
+
+    def _row_score(self, row: dict[str, Any]) -> float:
+        for key in ("final_score", "_rerank_score", "score"):
+            try:
+                return float(row.get(key))
+            except (TypeError, ValueError):
+                continue
+        return 0.0
 
     async def _chunk_search(
         self,
@@ -187,10 +242,10 @@ class Retriever:
                     seen.add(key)
                     rows.append(normalised)
                     if len(rows) >= top_k:
-                        return rows
+                        return sorted(rows, key=self._row_score, reverse=True)[:top_k]
             except Exception as exc:
                 log.debug("retriever.direct_keyword.term_failed", term=safe_term, error=str(exc))
-        return rows
+        return sorted(rows, key=self._row_score, reverse=True)[:top_k]
 
     def _keyword_terms(self, query: str) -> list[str]:
         lowered = query.casefold()
@@ -200,6 +255,24 @@ class Retriever:
             cleaned = token.strip(".,;:()[]{}\"'!?")
             if len(cleaned) >= 2:
                 terms.append(cleaned)
+
+        if self._is_land_use_right_protection_query(lowered):
+            terms.extend([
+                f"{LAO_ARTICLE} 5",
+                "Article 5",
+                LAO_PROTECTION,
+                f"{LAO_PROTECTION}{LAO_RIGHT}",
+                LAO_LAND_USE_RIGHT,
+                LAO_LAND_USE_RIGHT_ALT,
+                LAO_LAND_USE_RIGHT_OCR,
+                LAO_GUARD_RIGHT,
+                LAO_USE_RIGHT,
+                LAO_BENEFIT_RIGHT,
+                LAO_BENEFITS,
+                LAO_TRANSFER_RIGHT,
+                LAO_INHERIT_RIGHT,
+                "land use right protection",
+            ])
 
         if contains_lao_script(query):
             terms.extend([
@@ -219,6 +292,8 @@ class Retriever:
             "\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99",
             "\u0e81\u0eb3\u0ea1\u0eb0\u0eaa\u0eb4\u0e94",
             "\u0eaa\u0eb4\u0e94\u0e99\u0eb3\u0ec3\u0e8a\u0ec9",
+            LAO_LAND_USE_RIGHT_ALT,
+            LAO_LAND_USE_RIGHT_OCR,
             "\u0ead\u0eb0\u0eaa\u0eb1\u0e87\u0eab\u0eb2",
             "\u0e17\u0e35\u0e48\u0e14\u0e34\u0e19",
             "\u0e01\u0e23\u0e23\u0e21\u0e2a\u0e34\u0e17\u0e18\u0e34\u0e4c",
@@ -233,6 +308,8 @@ class Retriever:
                 "\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99",
                 "\u0e81\u0eb3\u0ea1\u0eb0\u0eaa\u0eb4\u0e94",
                 "\u0eaa\u0eb4\u0e94\u0e99\u0eb3\u0ec3\u0e8a\u0ec9",
+                LAO_LAND_USE_RIGHT_ALT,
+                LAO_LAND_USE_RIGHT_OCR,
                 "\u0e81\u0ebb\u0e94\u0edd\u0eb2\u0e8d\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99",
                 "\u0e17\u0e35\u0e48\u0e14\u0e34\u0e19",
                 "land",
@@ -288,6 +365,34 @@ class Retriever:
                 unique.append(value)
         return unique
 
+    def _is_land_use_right_protection_query(self, lowered: str) -> bool:
+        has_land = LAO_LAND in lowered or "land" in lowered
+        has_right = LAO_RIGHT in lowered or "right" in lowered
+        has_use_right = any(
+            marker in lowered
+            for marker in (
+                LAO_LAND_USE_RIGHT,
+                LAO_LAND_USE_RIGHT_ALT,
+                LAO_LAND_USE_RIGHT_OCR,
+                "land use right",
+                "use right",
+            )
+        )
+        has_protection_intent = any(
+            marker in lowered
+            for marker in (
+                LAO_PROTECTION,
+                "\u0e9b\u0ebb\u0e81\u0e9b\u0eb1\u0e81",
+                "\u0ec4\u0e94\u0ec9\u0eae\u0eb1\u0e9a\u0e81\u0eb2\u0e99\u0e9b\u0ebb\u0e81",
+                "\u0eaa\u0eb4\u0e94\u0ec3\u0e94",
+                "\u0ec3\u0e94\u0ec1\u0e94\u0ec8",
+                "protected",
+                "protection",
+                "which rights",
+            )
+        )
+        return has_land and has_right and (has_use_right or has_protection_intent) and has_protection_intent
+
     def _safe_ilike_term(self, term: str) -> str | None:
         value = re.sub(r"[\x00\r\n,(){}\[\]_%]", " ", str(term)).strip()
         value = re.sub(r"\s+", " ", value)
@@ -308,6 +413,9 @@ class Retriever:
             )
         ).casefold()
         score = 0.0
+        for article in self._article_targets_from_terms(terms):
+            if self._row_matches_article(row, article):
+                score += 4.0
         for term in terms:
             value = term.casefold().strip()
             if not value:
@@ -324,6 +432,36 @@ class Retriever:
         if self._is_official_source(row):
             score += 0.45
         return score
+
+    def _article_targets_from_terms(self, terms: list[str]) -> list[str]:
+        targets: list[str] = []
+        seen: set[str] = set()
+        pattern = rf"(?:{LAO_ARTICLE}|{THAI_ARTICLE}|article|art\.?|section|sec\.?)\s*0*([0-9]{{1,4}})"
+        for term in terms:
+            for match in re.finditer(pattern, term, flags=re.IGNORECASE):
+                target = match.group(1).lstrip("0") or "0"
+                if target not in seen:
+                    seen.add(target)
+                    targets.append(target)
+        return targets[:5]
+
+    def _row_matches_article(self, row: dict[str, Any], target: str) -> bool:
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        text = " ".join(
+            str(value or "")
+            for value in (
+                row.get("section"),
+                row.get("section_ref"),
+                row.get("content"),
+                metadata.get("section"),
+                metadata.get("article"),
+            )
+        )
+        patterns = (
+            rf"(?:{LAO_ARTICLE}|{THAI_ARTICLE}|article|art\.?|section|sec\.?)\s*0*{re.escape(target)}(?:\D|$)",
+            rf"^0*{re.escape(target)}(?:\.|\s)",
+        )
+        return any(re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE) for pattern in patterns)
 
     async def _legacy_hybrid_search(
         self,

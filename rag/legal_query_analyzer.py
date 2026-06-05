@@ -18,6 +18,17 @@ from core.jurisdiction import canonical_jurisdiction, infer_jurisdiction, infer_
 LAO_LAND = "\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99"
 LAO_LAW = "\u0e81\u0ebb\u0e94\u0edd\u0eb2\u0e8d"
 LAO_ARTICLE = "\u0ea1\u0eb2\u0e94\u0e95\u0eb2"
+LAO_RIGHT = "\u0eaa\u0eb4\u0e94"
+LAO_LAND_USE_RIGHT = "\u0eaa\u0eb4\u0e94\u0e99\u0eb3\u0ec3\u0e8a\u0ec9"
+LAO_LAND_USE_RIGHT_ALT = "\u0eaa\u0eb4\u0e94\u0e99\u0ecd\u0eb2\u0ec3\u0e8a\u0ec9"
+LAO_LAND_USE_RIGHT_OCR = "\u0eaa\u0eb4\u0e94\u0e99\u0eb2\u0ecd\u0ec3\u0e8a\u0ec9"
+LAO_PROTECTION = "\u0e9b\u0ebb\u0e81\u0e9b\u0ec9\u0ead\u0e87"
+LAO_GUARD_RIGHT = "\u0eaa\u0eb4\u0e94\u0e9b\u0ebb\u0e81\u0e9b\u0eb1\u0e81\u0eae\u0eb1\u0e81\u0eaa\u0eb2"
+LAO_USE_RIGHT = "\u0eaa\u0eb4\u0e94\u0ec3\u0e8a\u0ec9"
+LAO_BENEFIT_RIGHT = "\u0eaa\u0eb4\u0e94\u0ec4\u0e94\u0ec9\u0eae\u0eb1\u0e9a"
+LAO_BENEFITS = "\u0e9c\u0ebb\u0e99\u0e9b\u0eb0\u0ec2\u0eab\u0e8d\u0e94"
+LAO_TRANSFER_RIGHT = "\u0eaa\u0eb4\u0e94\u0ec2\u0ead\u0e99"
+LAO_INHERIT_RIGHT = "\u0eaa\u0eb4\u0e94\u0eaa\u0eb7\u0e9a\u0e97\u0ead\u0e94"
 THAI_LAND = "\u0e17\u0e35\u0e48\u0e14\u0e34\u0e19"
 THAI_LAW = "\u0e01\u0e0e\u0e2b\u0e21\u0e32\u0e22"
 THAI_ARTICLE = "\u0e21\u0e32\u0e15\u0e23\u0e32"
@@ -274,6 +285,8 @@ class LegalQueryAnalyzer:
         issues = [labels.get(practice_area, "legal issue")]
         if issue_type != "analysis":
             issues.append(f"{issue_type} question")
+        if self._is_land_use_right_protection_question(question):
+            issues.append("land-use-right protection under Law on Land Article 5")
         if requested_outcome:
             issues.append(f"requested outcome: {requested_outcome}")
         articles = self._article_refs(question)
@@ -336,6 +349,33 @@ class LegalQueryAnalyzer:
             ],
         }
         hints = list(base.get(practice_area, base["general"]))
+        if (
+            practice_area == "land"
+            and issue_type == "rights"
+            and self._is_land_use_right_protection_question(question)
+        ):
+            hints.insert(
+                0,
+                AuthorityHint(
+                    law_name="Law on Land",
+                    search_terms=[
+                        f"{LAO_ARTICLE} 5",
+                        "Article 5",
+                        LAO_PROTECTION,
+                        LAO_LAND_USE_RIGHT,
+                        LAO_LAND_USE_RIGHT_ALT,
+                        LAO_GUARD_RIGHT,
+                        LAO_USE_RIGHT,
+                        LAO_BENEFITS,
+                        LAO_TRANSFER_RIGHT,
+                        LAO_INHERIT_RIGHT,
+                    ],
+                    reason="Land-use-right protection is governed by Law on Land Article 5",
+                    jurisdiction="laos",
+                    article="5",
+                    priority=0,
+                ),
+            )
         for article in articles:
             hints.insert(
                 0,
@@ -376,3 +416,32 @@ class LegalQueryAnalyzer:
         if articles:
             score += 0.1
         return min(score, 0.9)
+
+    def _is_land_use_right_protection_question(self, question: str) -> bool:
+        lowered = question.casefold()
+        has_land = LAO_LAND in lowered or "land" in lowered
+        has_right = LAO_RIGHT in lowered or "right" in lowered
+        has_use_right = any(
+            marker in lowered
+            for marker in (
+                LAO_LAND_USE_RIGHT,
+                LAO_LAND_USE_RIGHT_ALT,
+                LAO_LAND_USE_RIGHT_OCR,
+                "land use right",
+                "use right",
+            )
+        )
+        has_protection_intent = any(
+            marker in lowered
+            for marker in (
+                LAO_PROTECTION,
+                "\u0e9b\u0ebb\u0e81\u0e9b\u0eb1\u0e81",
+                "\u0ec4\u0e94\u0ec9\u0eae\u0eb1\u0e9a\u0e81\u0eb2\u0e99\u0e9b\u0ebb\u0e81",
+                "\u0eaa\u0eb4\u0e94\u0ec3\u0e94",
+                "\u0ec3\u0e94\u0ec1\u0e94\u0ec8",
+                "protected",
+                "protection",
+                "which rights",
+            )
+        )
+        return has_land and has_right and (has_use_right or has_protection_intent) and has_protection_intent

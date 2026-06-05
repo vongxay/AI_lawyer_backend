@@ -270,12 +270,14 @@ class AgenticRetrievalPlanner:
             query = " ".join(part for part in (question, law_name, article, terms) if part).strip()
             if not query:
                 continue
+            raw_priority = hint.get("priority")
+            hint_priority = 1 if raw_priority is None or raw_priority == "" else int(raw_priority)
             queries.append(
                 RetrievalQuery(
                     query=query,
                     purpose=f"authority_hint_{index + 1}",
                     jurisdiction=canonical_jurisdiction(hint.get("jurisdiction")) or jurisdiction,
-                    priority=priority + int(hint.get("priority") or 1),
+                    priority=priority + hint_priority,
                     required=index == 0 or bool(article),
                     metadata={
                         "intent": intent,

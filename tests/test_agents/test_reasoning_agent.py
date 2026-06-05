@@ -35,6 +35,13 @@ VALID_IRAC_JSON = json.dumps({
     "citations": [{"ref": "มาตรา 420", "status": "UNVERIFIED"}],
 })
 
+LAND_RIGHT_PROTECTION_Q = (
+    "\u0e9c\u0eb9\u0ec9\u0ec4\u0e94\u0ec9\u0eae\u0eb1\u0e9a\u0eaa\u0eb4\u0e94"
+    "\u0e99\u0eb3\u0ec3\u0e8a\u0ec9\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99 "
+    "\u0ec4\u0e94\u0ec9\u0eae\u0eb1\u0e9a\u0e81\u0eb2\u0e99\u0e9b\u0ebb\u0e81"
+    "\u0e9b\u0ec9\u0ead\u0e87\u0eaa\u0eb4\u0e94\u0ec3\u0e94\u0ec1\u0e94\u0ec8"
+)
+
 
 @pytest.fixture
 def mock_llm():
@@ -145,6 +152,27 @@ class TestIracReasoningAgent:
         assert result.ok
         assert result.confidence == 0.3
 
+    async def test_insufficient_context_reason_suppresses_prompt_leak(self, mock_llm, agent):
+        mock_llm.generate = AsyncMock(return_value=LlmResult(
+            text=json.dumps({
+                "insufficient_context": True,
+                "reason": "No answer can be given without using the CONTEXT block.",
+            }),
+            model="stub",
+            provider="stub",
+        ))
+        result = await agent.run(
+            question=LAND_RIGHT_PROTECTION_Q,
+            research=None,
+            document=None,
+            evidence=None,
+            memory={"empty": True},
+        )
+
+        analysis = result.data["irac"]["application"]["analysis"]
+        assert "CONTEXT block" not in analysis
+        assert result.confidence == 0.3
+
     async def test_strips_markdown_fences(self, mock_llm, agent):
         mock_llm.generate = AsyncMock(return_value=LlmResult(
             text=f"```json\n{VALID_IRAC_JSON}\n```",
@@ -202,6 +230,46 @@ class TestIracReasoningAgent:
 
         assert ordered[0]["section"] == "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 25."
         assert ordered[0]["_target_section_match"] is True
+
+    async def test_land_use_right_protection_targets_article_five(self, agent):
+        chunks = [
+            {
+                "type": "law",
+                "title": "Law on Land",
+                "section": "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 12",
+                "content": "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 12. other land content",
+                "final_score": 9.0,
+            },
+            {
+                "type": "law",
+                "title": "Law on Land",
+                "section": "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 5.",
+                "content": (
+                    "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 5. "
+                    "\u0e81\u0eb2\u0e99\u0e9b\u0ebb\u0e81\u0e9b\u0ec9\u0ead\u0e87"
+                    "\u0eaa\u0eb4\u0e94 \u0eaa\u0eb4\u0e94\u0ec2\u0ead\u0e99 "
+                    "\u0eaa\u0eb4\u0e94\u0eaa\u0eb7\u0e9a\u0e97\u0ead\u0e94"
+                ),
+                "final_score": 1.0,
+            },
+        ]
+
+        ordered = agent._prioritise_target_sections(LAND_RIGHT_PROTECTION_Q, chunks)
+
+        assert agent._section_numbers_from_question(LAND_RIGHT_PROTECTION_Q) == ["5"]
+        assert ordered[0]["section"] == "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 5."
+        assert ordered[0]["_target_section_match"] is True
+
+    async def test_fallback_suppresses_prompt_leak_text(self, agent):
+        response = agent._fallback_response(
+            LAND_RIGHT_PROTECTION_Q,
+            "Answer using the CONTEXT block only. STRICT GENERATION RULES apply.",
+        )
+
+        analysis = response["irac"]["application"]["analysis"]
+        assert "CONTEXT block" not in analysis
+        assert "STRICT GENERATION" not in analysis
+        assert response["_confidence"] == 0.3
 
     async def test_agent_result_has_name(self, agent):
         result = await agent.run(

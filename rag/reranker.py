@@ -14,6 +14,17 @@ from core.logging import get_logger
 
 log = get_logger(__name__)
 
+LAO_LAND = "\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99"
+LAO_ARTICLE = "\u0ea1\u0eb2\u0e94\u0e95\u0eb2"
+LAO_RIGHT = "\u0eaa\u0eb4\u0e94"
+LAO_LAND_USE_RIGHT = "\u0eaa\u0eb4\u0e94\u0e99\u0eb3\u0ec3\u0e8a\u0ec9"
+LAO_LAND_USE_RIGHT_ALT = "\u0eaa\u0eb4\u0e94\u0e99\u0ecd\u0eb2\u0ec3\u0e8a\u0ec9"
+LAO_LAND_USE_RIGHT_OCR = "\u0eaa\u0eb4\u0e94\u0e99\u0eb2\u0ecd\u0ec3\u0e8a\u0ec9"
+LAO_PROTECTION = "\u0e9b\u0ebb\u0e81\u0e9b\u0ec9\u0ead\u0e87"
+LAO_TRANSFER_RIGHT = "\u0eaa\u0eb4\u0e94\u0ec2\u0ead\u0e99"
+LAO_INHERIT_RIGHT = "\u0eaa\u0eb4\u0e94\u0eaa\u0eb7\u0e9a\u0e97\u0ead\u0e94"
+THAI_ARTICLE = "\u0e21\u0e32\u0e15\u0e23\u0e32"
+
 
 class Reranker:
     async def rerank(
@@ -40,11 +51,20 @@ class Reranker:
     def _score(self, query: str, chunk: dict[str, Any]) -> float:
         base_score = self._safe_float(chunk.get("final_score"), default=0.25)
         keyword_boost = self._keyword_boost(query, chunk)
+        target_article_boost = self._target_article_boost(query, chunk)
         authority_boost = self._authority_boost(chunk)
         structure_boost = self._structure_boost(chunk)
         quality_penalty = self._quality_penalty(chunk)
         graph_boost = 0.08 if chunk.get("type") == "precedent" else 0.0
-        return base_score + keyword_boost + authority_boost + structure_boost + graph_boost - quality_penalty
+        return (
+            base_score
+            + keyword_boost
+            + target_article_boost
+            + authority_boost
+            + structure_boost
+            + graph_boost
+            - quality_penalty
+        )
 
     def _keyword_boost(self, query: str, chunk: dict[str, Any]) -> float:
         content = " ".join(
@@ -68,6 +88,92 @@ class Reranker:
             elif term in content:
                 matches += 1
         return min(0.35, matches * 0.045)
+
+    def _target_article_boost(self, query: str, chunk: dict[str, Any]) -> float:
+        lowered = query.casefold()
+        targets = self._article_targets(lowered)
+        if not targets and self._is_land_use_right_protection_query(lowered):
+            targets = ["5"]
+        if not targets:
+            return 0.0
+
+        boost = 0.0
+        if any(self._chunk_matches_article(chunk, target) for target in targets):
+            boost += 0.85
+
+        content = self._chunk_text(chunk).casefold()
+        if self._is_land_use_right_protection_query(lowered):
+            protected_right_terms = (
+                LAO_PROTECTION,
+                LAO_LAND_USE_RIGHT,
+                LAO_LAND_USE_RIGHT_ALT,
+                LAO_LAND_USE_RIGHT_OCR,
+                LAO_TRANSFER_RIGHT,
+                LAO_INHERIT_RIGHT,
+            )
+            boost += min(0.3, sum(0.06 for term in protected_right_terms if term in content))
+        return boost
+
+    def _article_targets(self, lowered_query: str) -> list[str]:
+        pattern = rf"(?:{LAO_ARTICLE}|{THAI_ARTICLE}|article|art\.?|section|sec\.?)\s*0*([0-9]{{1,4}})"
+        targets: list[str] = []
+        seen: set[str] = set()
+        for match in re.finditer(pattern, lowered_query, flags=re.IGNORECASE):
+            target = match.group(1).lstrip("0") or "0"
+            if target not in seen:
+                seen.add(target)
+                targets.append(target)
+        return targets[:5]
+
+    def _is_land_use_right_protection_query(self, lowered: str) -> bool:
+        has_land = LAO_LAND in lowered or "land" in lowered
+        has_right = LAO_RIGHT in lowered or "right" in lowered
+        has_use_right = any(
+            marker in lowered
+            for marker in (
+                LAO_LAND_USE_RIGHT,
+                LAO_LAND_USE_RIGHT_ALT,
+                LAO_LAND_USE_RIGHT_OCR,
+                "land use right",
+                "use right",
+            )
+        )
+        has_protection_intent = any(
+            marker in lowered
+            for marker in (
+                LAO_PROTECTION,
+                "\u0e9b\u0ebb\u0e81\u0e9b\u0eb1\u0e81",
+                "\u0ec4\u0e94\u0ec9\u0eae\u0eb1\u0e9a\u0e81\u0eb2\u0e99\u0e9b\u0ebb\u0e81",
+                "\u0eaa\u0eb4\u0e94\u0ec3\u0e94",
+                "\u0ec3\u0e94\u0ec1\u0e94\u0ec8",
+                "protected",
+                "protection",
+                "which rights",
+            )
+        )
+        return has_land and has_right and (has_use_right or has_protection_intent) and has_protection_intent
+
+    def _chunk_matches_article(self, chunk: dict[str, Any], target: str) -> bool:
+        text = self._chunk_text(chunk)
+        patterns = (
+            rf"(?:{LAO_ARTICLE}|{THAI_ARTICLE}|article|art\.?|section|sec\.?)\s*0*{re.escape(target)}(?:\D|$)",
+            rf"^0*{re.escape(target)}(?:\.|\s)",
+        )
+        return any(re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE) for pattern in patterns)
+
+    def _chunk_text(self, chunk: dict[str, Any]) -> str:
+        metadata = chunk.get("metadata") if isinstance(chunk.get("metadata"), dict) else {}
+        return " ".join(
+            str(value or "")
+            for value in (
+                chunk.get("title"),
+                chunk.get("section"),
+                chunk.get("section_ref"),
+                chunk.get("content"),
+                metadata.get("section"),
+                metadata.get("article"),
+            )
+        )
 
     def _query_terms(self, query: str) -> list[str]:
         terms: list[str] = []

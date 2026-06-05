@@ -497,6 +497,7 @@ class WorkflowManager:
         memory_hash: str | None,
     ) -> str:
         payload = {
+            "answer_pipeline_version": 4,
             "question": question,
             "case_id": case_id,
             "jurisdiction": jurisdiction,

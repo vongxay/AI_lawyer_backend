@@ -30,6 +30,15 @@ from core.logging import get_logger
 
 log = get_logger(__name__)
 
+LAO_LAND = "\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99"
+LAO_ARTICLE = "\u0ea1\u0eb2\u0e94\u0e95\u0eb2"
+LAO_RIGHT = "\u0eaa\u0eb4\u0e94"
+LAO_LAND_USE_RIGHT = "\u0eaa\u0eb4\u0e94\u0e99\u0eb3\u0ec3\u0e8a\u0ec9"
+LAO_LAND_USE_RIGHT_ALT = "\u0eaa\u0eb4\u0e94\u0e99\u0ecd\u0eb2\u0ec3\u0e8a\u0ec9"
+LAO_LAND_USE_RIGHT_OCR = "\u0eaa\u0eb4\u0e94\u0e99\u0eb2\u0ecd\u0ec3\u0e8a\u0ec9"
+LAO_PROTECTION = "\u0e9b\u0ebb\u0e81\u0e9b\u0ec9\u0ead\u0e87"
+THAI_ARTICLE = "\u0e21\u0e32\u0e15\u0e23\u0e32"
+
 # ── System prompt ──────────────────────────────────────────────────────────────
 _IRAC_SYSTEM_PROMPT = """
 You are a senior legal advisor with 30+ years of experience in Thai and Lao law.
@@ -309,7 +318,7 @@ class IracReasoningAgent(BaseAgent):
 
     def _section_numbers_from_question(self, question: str) -> list[str]:
         matches = re.findall(
-            r"(?:ມາດຕາ|ມາດຕາທີ|มาตรา|Article|Art\.?|Section|Sec\.?)\s*([0-9]{1,4})",
+            rf"(?:{LAO_ARTICLE}(?:\s*\u0e97\u0eb5)?|{THAI_ARTICLE}|Article|Art\.?|Section|Sec\.?)\s*([0-9]{{1,4}})",
             question,
             flags=re.IGNORECASE,
         )
@@ -320,14 +329,45 @@ class IracReasoningAgent(BaseAgent):
             if value not in seen:
                 seen.add(value)
                 targets.append(value)
+        if not targets and self._is_land_use_right_protection_question(question):
+            targets.append("5")
         return targets
 
     def _matches_section(self, text: str, target: str) -> bool:
         patterns = (
-            rf"(?:ມາດຕາ|มาตรา|Article|Art\.?|Section|Sec\.?)\s*0*{re.escape(target)}(?:\D|$)",
+            rf"(?:{LAO_ARTICLE}|{THAI_ARTICLE}|Article|Art\.?|Section|Sec\.?)\s*0*{re.escape(target)}(?:\D|$)",
             rf"^0*{re.escape(target)}(?:\.|\s)",
         )
         return any(re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE) for pattern in patterns)
+
+    def _is_land_use_right_protection_question(self, question: str) -> bool:
+        lowered = question.casefold()
+        has_land = LAO_LAND in lowered or "land" in lowered
+        has_right = LAO_RIGHT in lowered or "right" in lowered
+        has_use_right = any(
+            marker in lowered
+            for marker in (
+                LAO_LAND_USE_RIGHT,
+                LAO_LAND_USE_RIGHT_ALT,
+                LAO_LAND_USE_RIGHT_OCR,
+                "land use right",
+                "use right",
+            )
+        )
+        has_protection_intent = any(
+            marker in lowered
+            for marker in (
+                LAO_PROTECTION,
+                "\u0e9b\u0ebb\u0e81\u0e9b\u0eb1\u0e81",
+                "\u0ec4\u0e94\u0ec9\u0eae\u0eb1\u0e9a\u0e81\u0eb2\u0e99\u0e9b\u0ebb\u0e81",
+                "\u0eaa\u0eb4\u0e94\u0ec3\u0e94",
+                "\u0ec3\u0e94\u0ec1\u0e94\u0ec8",
+                "protected",
+                "protection",
+                "which rights",
+            )
+        )
+        return has_land and has_right and (has_use_right or has_protection_intent) and has_protection_intent
 
     def _missing_case_facts_reason(self, question: str, memory: dict[str, Any] | None = None) -> str | None:
         settings = get_settings()
@@ -375,7 +415,7 @@ class IracReasoningAgent(BaseAgent):
             repaired = self._try_parse_repaired_json(text)
             if repaired:
                 return self._normalise_parsed_irac(repaired, question)
-            if self._looks_like_structured_json(text):
+            if self._looks_like_structured_json(text) or self._looks_like_prompt_leak(text):
                 return self._structured_parse_failure_response(question)
             return self._fallback_response(question, text)
 
@@ -384,9 +424,14 @@ class IracReasoningAgent(BaseAgent):
             log.warning("reasoning.insufficient_context", reason=data.get("reason"))
             return self._insufficient_context_response(question, data.get("reason", ""))
 
+        normalised_irac = self._normalise_irac_shape(data.get("irac"), question)
+        if self._contains_prompt_leak(normalised_irac):
+            log.warning("reasoning.prompt_leak_in_structured_response")
+            return self._structured_parse_failure_response(question)
+
         data = {
             **data,
-            "irac": self._normalise_irac_shape(data.get("irac"), question),
+            "irac": normalised_irac,
         }
         confidence = float(data.get("confidence", 0.75))
         return {**data, "_confidence": confidence}
@@ -515,6 +560,37 @@ class IracReasoningAgent(BaseAgent):
         clean = text.strip()
         return clean.startswith("{") or "```json" in clean.lower() or '"irac"' in clean
 
+    def _looks_like_prompt_leak(self, text: str) -> bool:
+        lowered = text.casefold()
+        markers = (
+            "context block",
+            "retrieved legal context",
+            "strict generation rules",
+            "output format",
+            "legal question analysis",
+            "conversation memory",
+            "response mode",
+            "return compact json",
+            "only use information from the context",
+            "only use information from the context block",
+        )
+        return any(marker in lowered for marker in markers)
+
+    def _contains_prompt_leak(self, value: Any) -> bool:
+        if isinstance(value, str):
+            return self._looks_like_prompt_leak(value)
+        if isinstance(value, dict):
+            return any(self._contains_prompt_leak(item) for item in value.values())
+        if isinstance(value, list):
+            return any(self._contains_prompt_leak(item) for item in value)
+        return False
+
+    def _safe_insufficient_reason(self, reason: str) -> str:
+        clean = str(reason or "").strip()
+        if not clean or self._looks_like_prompt_leak(clean):
+            return ""
+        return clean[:600]
+
     def _structured_parse_failure_response(self, question: str) -> dict[str, Any]:
         if contains_lao_script(question):
             reason = (
@@ -580,7 +656,7 @@ class IracReasoningAgent(BaseAgent):
         }
 
     def _insufficient_context_response(self, question: str, reason: str) -> dict[str, Any]:
-        texts = self._insufficient_context_texts(question, reason)
+        texts = self._insufficient_context_texts(question, self._safe_insufficient_reason(reason))
         return {
             "irac": {
                 "issue": {"primary": question, "secondary": []},
@@ -629,7 +705,7 @@ class IracReasoningAgent(BaseAgent):
 
     def _fallback_response(self, question: str, raw_text: str) -> dict[str, Any]:
         """When JSON parse fails, wrap raw text in minimal IRAC structure."""
-        if self._looks_like_structured_json(raw_text):
+        if self._looks_like_structured_json(raw_text) or self._looks_like_prompt_leak(raw_text):
             return self._structured_parse_failure_response(question)
 
         language = infer_response_language(question)
