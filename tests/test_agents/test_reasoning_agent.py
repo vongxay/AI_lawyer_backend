@@ -171,10 +171,37 @@ class TestIracReasoningAgent:
             "memory_highlights": {},
         }
         context = agent._build_context(
+            question="test",
             research=research, document=None, evidence=None,
             memory={"empty": True}
         )
         assert "ประมวลกฎหมายแพ่ง" in context["docs"]
+
+    async def test_prioritises_explicit_lao_article_number(self, agent):
+        chunks = [
+            {
+                "type": "law",
+                "title": "land law",
+                "section": "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 14",
+                "content": "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 14. other",
+                "final_score": 9.0,
+            },
+            {
+                "type": "law",
+                "title": "land law",
+                "section": "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 25.",
+                "content": "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 25. water land rules",
+                "final_score": 1.0,
+            },
+        ]
+
+        ordered = agent._prioritise_target_sections(
+            "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 25 \u0e95\u0ec9\u0ead\u0e87\u0ea5\u0eb0\u0ea7\u0eb1\u0e87\u0eab\u0e8d\u0eb1\u0e87?",
+            chunks,
+        )
+
+        assert ordered[0]["section"] == "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 25."
+        assert ordered[0]["_target_section_match"] is True
 
     async def test_agent_result_has_name(self, agent):
         result = await agent.run(

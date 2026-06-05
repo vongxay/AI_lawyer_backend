@@ -260,6 +260,9 @@ class WorkflowManager:
             evidence=evidence_data,
             memory=memory,
             response_language=response_language,
+            query_mode=effective_mode,
+            response_style=effective_style,
+            query_type=query_type,
         )
         if not reasoning_result.ok:
             if "No real LLM API key" in (reasoning_result.error or ""):
@@ -706,7 +709,14 @@ class WorkflowManager:
         ]
 
         if response_style == "plain":
-            return "\n\n".join(part for part in (recommendation, analysis) if part)
+            labels = self._answer_labels(response_language)
+            plain_parts = [part for part in (recommendation, analysis) if part]
+            if action_steps:
+                plain_parts.append(
+                    f"{labels['next_steps']}\n"
+                    + "\n".join(f"{index + 1}. {step}" for index, step in enumerate(action_steps))
+                )
+            return "\n\n".join(plain_parts)
 
         labels = self._answer_labels(response_language)
         parts = []

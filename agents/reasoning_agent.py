@@ -46,9 +46,15 @@ Use CONVERSATION MEMORY only to understand prior facts, user goals, follow-up qu
 4. Structure ALL responses using the IRAC JSON format below.
 5. Be concise but complete — courts require precision.
 6. Return compact JSON only. Do not add markdown fences, commentary, or prose outside JSON.
-7. Keep output small: max 3 items per array, one sentence per item, statute text <= 240 characters, application.analysis <= 800 characters, reasoning_notes <= 120 characters.
+7. Keep output focused: max 3 items for strengths/weaknesses/counter_args/rebuttals, max 8 action_steps when listing statutory requirements, one sentence per item, statute text <= 500 characters, application.analysis <= 1000 characters, reasoning_notes <= 120 characters.
 8. Return minified one-line JSON. Do not pretty-print, indent, or wrap in code fences.
 9. If the current question is a follow-up, resolve it using CONVERSATION MEMORY before answering.
+10. If QUERY MODE is "general" or RESPONSE STYLE is "plain", answer as legal information, not litigation strategy:
+   - Do not discuss win/loss, settlement, case prospects, or settlement unless the user asks about a dispute.
+   - Use action_steps for exact statutory requirements, conditions, prohibitions, or checklist items.
+   - If the context says an article contains several conditions, enumerate every condition found in the context.
+   - If the exact article text is incomplete or OCR-noisy, say that clearly and do not invent missing conditions.
+11. For case_strategy/evidence/action_plan only, include litigation risk, counter-arguments, and win_probability.
 
 ═══ OUTPUT FORMAT (strict JSON) ═══
 {
@@ -118,6 +124,11 @@ _CONTEXT_TEMPLATE = """
 CONVERSATION MEMORY
 {conversation_memory}
 
+RESPONSE MODE
+query_mode={query_mode}
+response_style={response_style}
+query_type={query_type}
+
 ═══ USER LEGAL QUERY ═══
 {question}
 """
@@ -135,12 +146,16 @@ class IracReasoningAgent(BaseAgent):
         evidence: dict | None = None,
         memory: dict,
         response_language: str | None = None,
+        query_mode: str | None = None,
+        response_style: str | None = None,
+        query_type: str | None = None,
     ) -> dict[str, Any]:
         settings = get_settings()
         language = infer_response_language(question, response_language)
 
         # Build context from all upstream agents
         context = self._build_context(
+            question=question,
             research=research,
             document=document,
             evidence=evidence,
@@ -158,6 +173,9 @@ class IracReasoningAgent(BaseAgent):
             retrieved_documents=context["docs"],
             case_memory_summary=context["memory"],
             conversation_memory=context["conversation"],
+            query_mode=query_mode or "general",
+            response_style=response_style or "plain",
+            query_type=query_type or "legal_question",
             question=question,
         )
 
@@ -183,6 +201,7 @@ class IracReasoningAgent(BaseAgent):
     def _build_context(
         self,
         *,
+        question: str,
         research: dict | None,
         document: dict | None,
         evidence: dict | None,
@@ -227,12 +246,14 @@ class IracReasoningAgent(BaseAgent):
                     f"clean_text={coverage.get('clean_text_count')} "
                     f"reason={coverage.get('reason') or 'ok'}"
                 )
-            for chunk in research["retrieved_documents"][:max(1, settings.reasoning_context_top_k)]:
+            chunks = self._prioritise_target_sections(question, research["retrieved_documents"])
+            for chunk in chunks[:max(1, settings.reasoning_context_top_k)]:
                 section = f" {chunk.get('section')}" if chunk.get("section") else ""
                 score = f" score={chunk.get('final_score'):.4f}" if isinstance(chunk.get("final_score"), (int, float)) else ""
                 source = f" source={chunk.get('source_url')}" if chunk.get("source_url") else ""
+                target = " TARGET_SECTION" if chunk.get("_target_section_match") else ""
                 doc_parts.append(
-                    f"[{chunk.get('type', 'doc').upper()}] "
+                    f"[{chunk.get('type', 'doc').upper()}{target}] "
                     f"{chunk.get('title', '')}{section}{score}{source} "
                     f"— {chunk.get('content', '')[:max(120, settings.reasoning_context_chunk_chars)]}"
                 )
@@ -263,6 +284,50 @@ class IracReasoningAgent(BaseAgent):
             "memory": "\n".join(memory_parts) or "No prior case memory.",
             "conversation": "\n".join(conversation_parts) or "No prior conversation memory.",
         }
+
+    def _prioritise_target_sections(self, question: str, chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        targets = self._section_numbers_from_question(question)
+        if not targets:
+            return chunks
+
+        def has_target(chunk: dict[str, Any]) -> bool:
+            haystack = f"{chunk.get('section') or ''}\n{str(chunk.get('content') or '')[:220]}"
+            return any(self._matches_section(haystack, target) for target in targets)
+
+        def sort_key(chunk: dict[str, Any]) -> tuple[int, float]:
+            base_score = 0.0
+            for key in ("final_score", "_rerank_score", "score"):
+                try:
+                    base_score = float(chunk.get(key))
+                    break
+                except (TypeError, ValueError):
+                    continue
+            return (1 if has_target(chunk) else 0, base_score)
+
+        sorted_chunks = sorted(chunks, key=sort_key, reverse=True)
+        return [{**chunk, "_target_section_match": has_target(chunk)} for chunk in sorted_chunks]
+
+    def _section_numbers_from_question(self, question: str) -> list[str]:
+        matches = re.findall(
+            r"(?:ມາດຕາ|ມາດຕາທີ|มาตรา|Article|Art\.?|Section|Sec\.?)\s*([0-9]{1,4})",
+            question,
+            flags=re.IGNORECASE,
+        )
+        targets: list[str] = []
+        seen: set[str] = set()
+        for match in matches:
+            value = str(match).lstrip("0") or "0"
+            if value not in seen:
+                seen.add(value)
+                targets.append(value)
+        return targets
+
+    def _matches_section(self, text: str, target: str) -> bool:
+        patterns = (
+            rf"(?:ມາດຕາ|มาตรา|Article|Art\.?|Section|Sec\.?)\s*0*{re.escape(target)}(?:\D|$)",
+            rf"^0*{re.escape(target)}(?:\.|\s)",
+        )
+        return any(re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE) for pattern in patterns)
 
     def _missing_case_facts_reason(self, question: str, memory: dict[str, Any] | None = None) -> str | None:
         settings = get_settings()

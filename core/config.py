@@ -124,7 +124,7 @@ class Settings(BaseSettings):
     rag_embedding_batch_size: int = 48
     rag_plan_max_queries: int = 3
     reasoning_context_top_k: int = 6
-    reasoning_context_chunk_chars: int = 360
+    reasoning_context_chunk_chars: int = 1200
     case_analysis_min_fact_chars: int = 120
 
     # ── Storage ────────────────────────────────────────────────────────────────
@@ -136,9 +136,9 @@ class Settings(BaseSettings):
     url_ingest_max_documents: int = 10
     pdf_ocr_enabled: bool = True
     pdf_detect_garbled_text: bool = True
-    pdf_ocr_max_pages: int = 12
-    pdf_ocr_dpi: int = 200
-    pdf_ocr_languages: str = "eng+tha+lao"
+    pdf_ocr_max_pages: int = 0
+    pdf_ocr_dpi: int = 300
+    pdf_ocr_languages: str = "lao+tha+eng"
     tesseract_cmd: str | None = None
     tessdata_prefix: str | None = None
     allowed_upload_types: str = (
