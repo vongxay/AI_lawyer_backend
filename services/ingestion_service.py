@@ -192,7 +192,11 @@ class LegalDocumentIngestionService:
             }
         except Exception as exc:
             log.warning("ingestion.embedding.failed", error=str(exc))
-            raise ExternalServiceError(f"Embedding failed: {exc}") from exc
+            return {
+                "vector": None,
+                "model": None,
+                "warnings": [f"Embedding provider failed; document was indexed for keyword search only: {exc}"],
+            }
 
     async def _embed_chunks(self, chunks: list[LegalTextChunk], *, jurisdiction: str) -> dict[str, Any]:
         if not chunks:
@@ -226,7 +230,12 @@ class LegalDocumentIngestionService:
             }
         except Exception as exc:
             log.warning("ingestion.chunk_embedding.failed", error=str(exc))
-            raise ExternalServiceError(f"Chunk embedding failed: {exc}") from exc
+            return {
+                "vectors": [None for _ in chunks],
+                "embedded": 0,
+                "model": None,
+                "warnings": [f"Embedding provider failed; chunks were indexed for keyword search only: {exc}"],
+            }
 
     async def _insert_document(
         self,

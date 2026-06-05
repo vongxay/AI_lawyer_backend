@@ -152,6 +152,7 @@ async def legal_query_stream(
             )
             response = result.response
 
+            yield _sse("answer", {"answer": response.get("answer") or ""})
             if payload.include_irac:
                 yield _sse("irac", response.get("irac", {}))
             if payload.include_citations:
@@ -316,7 +317,11 @@ async def list_chat_messages(session_id: str, user: AuthUser) -> list[dict[str, 
         .order("created_at", desc=False)
         .execute()
     )
-    return [_normalise_message(row) for row in (result.data or [])]
+    return [
+        _normalise_message(row)
+        for row in (result.data or [])
+        if not _is_internal_expert_review_message(row)
+    ]
 
 
 @router.post("/sessions/{session_id}/messages", summary="Save a chat message")
@@ -753,6 +758,15 @@ def _normalise_message(row: dict[str, Any]) -> dict[str, Any]:
         "escalation_reason": row.get("escalation_reason"),
         "created_at": row.get("created_at"),
     }
+
+
+def _is_internal_expert_review_message(row: dict[str, Any]) -> bool:
+    content = str(row.get("content") or "")
+    return (
+        row.get("role") == "assistant"
+        and bool(row.get("escalation_reason"))
+        and content.startswith("Escalated for expert review:")
+    )
 
 
 def _normalise_db_role(role: str) -> str:

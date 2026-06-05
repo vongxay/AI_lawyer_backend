@@ -125,7 +125,7 @@ class WorkflowManager:
     ) -> OrchestrationResult:
         started = time.perf_counter()
         sid = session_id or str(uuid.uuid4())
-        effective_jurisdiction = infer_jurisdiction(question, jurisdiction)
+        effective_jurisdiction = infer_jurisdiction(question, jurisdiction) or "laos"
         effective_mode = self._normalise_query_mode(query_mode, evidence_files=evidence_files, document_text=document_text)
         effective_style = self._normalise_response_style(response_style, query_mode=effective_mode)
         effective_urgency = urgency if urgency in {"normal", "urgent", "critical"} else "normal"
@@ -235,9 +235,12 @@ class WorkflowManager:
                 )
 
         # Extract results from completed tasks (FIX: .result() not direct access)
-        research_data = parallel_tasks["research"].result().data if "research" in parallel_tasks else None
-        document_data = parallel_tasks["document"].result().data if "document" in parallel_tasks else None
-        evidence_data = parallel_tasks["evidence"].result().data if "evidence" in parallel_tasks else None
+        research_result = parallel_tasks["research"].result() if "research" in parallel_tasks else None
+        document_result = parallel_tasks["document"].result() if "document" in parallel_tasks else None
+        evidence_result = parallel_tasks["evidence"].result() if "evidence" in parallel_tasks else None
+        research_data = self._agent_data_or_empty_research(research_result, effective_jurisdiction)
+        document_data = document_result.data if document_result and document_result.ok else None
+        evidence_data = evidence_result.data if evidence_result and evidence_result.ok else None
 
         # ── Step 5: IRAC Reasoning (sequential — needs all parallel results) ──
         agents_used.append("reasoning")
@@ -394,6 +397,34 @@ class WorkflowManager:
         from agents.base_agent import AgentResult
         return AgentResult(data={}, agent_name="noop")
 
+    def _agent_data_or_empty_research(self, result: Any, jurisdiction: str | None) -> dict[str, Any] | None:
+        if result is None:
+            return None
+        if result.ok:
+            return result.data
+        return {
+            "retrieved_documents": [],
+            "case_graph_context": [],
+            "memory_highlights": {},
+            "retrieval": {
+                "source": "empty",
+                "count": 0,
+                "jurisdiction": jurisdiction,
+                "error": result.error,
+                "coverage": {
+                    "count": 0,
+                    "statute_count": 0,
+                    "official_source_count": 0,
+                    "clean_text_count": 0,
+                    "enough_results": False,
+                    "has_statute": False,
+                    "has_official_source": False,
+                    "has_clean_text": False,
+                    "reason": "research_agent_failed",
+                },
+            },
+        }
+
     def _build_cache_key(
         self,
         *,
@@ -503,14 +534,54 @@ class WorkflowManager:
 
     def _score_research_quality(self, research_data: dict | None) -> dict[str, Any]:
         retrieval = (research_data or {}).get("retrieval") or {}
+        documents = (research_data or {}).get("retrieved_documents") or []
         source = retrieval.get("source", "empty")
-        count = int(retrieval.get("count") or 0)
+        count = int(retrieval.get("count") or len(documents) or 0)
+        coverage = retrieval.get("coverage") if isinstance(retrieval.get("coverage"), dict) else {}
+        statute_count = int(coverage.get("statute_count") or 0)
+        official_count = int(coverage.get("official_source_count") or 0)
+        clean_count = int(coverage.get("clean_text_count") or 0)
+        trace = retrieval.get("trace") if isinstance(retrieval.get("trace"), list) else []
+        used_embeddings = any(item.get("mode") == "hybrid" for item in trace if isinstance(item, dict))
 
-        if source == "database" and count >= 5:
-            return {"level": "strong", "confidence_cap": 0.95, "reason": None}
+        if retrieval.get("error"):
+            return {
+                "level": "insufficient",
+                "confidence_cap": 0.35,
+                "reason": retrieval.get("error") or "research_agent_failed",
+                "coverage": coverage,
+            }
+
+        if source == "database" and count >= 5 and statute_count > 0 and clean_count > 0:
+            cap = 0.95 if used_embeddings else 0.84
+            if retrieval.get("jurisdiction") == "laos" and official_count == 0:
+                cap = min(cap, 0.74)
+            return {
+                "level": "strong" if used_embeddings else "strong_keyword_only",
+                "confidence_cap": cap,
+                "reason": coverage.get("reason"),
+                "coverage": coverage,
+            }
+        if source == "database" and count > 0 and statute_count > 0:
+            return {
+                "level": "limited",
+                "confidence_cap": 0.72 if clean_count == 0 else 0.78,
+                "reason": coverage.get("reason") or "limited_retrieved_context",
+                "coverage": coverage,
+            }
         if source == "database" and count > 0:
-            return {"level": "limited", "confidence_cap": 0.78, "reason": "limited_retrieved_context"}
-        return {"level": "insufficient", "confidence_cap": 0.35, "reason": "no_retrieved_legal_context"}
+            return {
+                "level": "weak",
+                "confidence_cap": 0.58,
+                "reason": coverage.get("reason") or "no_statutory_authority",
+                "coverage": coverage,
+            }
+        return {
+            "level": "insufficient",
+            "confidence_cap": 0.35,
+            "reason": "no_retrieved_legal_context",
+            "coverage": coverage,
+        }
 
     def _build_response(
         self,

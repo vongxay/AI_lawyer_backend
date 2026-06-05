@@ -344,8 +344,13 @@ class EmbeddingService:
 
         settings = get_settings()
         model = settings.embedding_model_multilingual if multilingual else self._model_en
-        response = await self._client.embeddings.create(input=texts, model=model)
-        total_tokens = int(getattr(response.usage, "total_tokens", 0) or 0)
+        request: dict = {"input": texts, "model": model}
+        if self._dims and model.startswith("text-embedding-3"):
+            request["dimensions"] = int(self._dims)
+
+        response = await self._client.embeddings.create(**request)
+        usage = getattr(response, "usage", None)
+        total_tokens = int(getattr(usage, "total_tokens", 0) or 0)
         per_item_tokens = total_tokens // max(1, len(response.data))
         return [
             EmbeddingResult(

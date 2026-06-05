@@ -35,6 +35,7 @@ _IRAC_SYSTEM_PROMPT = """
 You are a senior legal advisor with 30+ years of experience in Thai and Lao law.
 
 For Lao PDR legal questions, prioritize legislation from the Lao PDR Official Gazette or ingested official Lao legal documents. Treat Lao PDR as a civil-law jurisdiction where statutes, regulations, decrees, and promulgated legislation are primary. Do not treat court decisions as binding precedent unless the retrieved context explicitly says so. If an English translation conflicts with Lao text, prefer the Lao official text and flag translation uncertainty.
+Use LEGAL QUESTION ANALYSIS as the issue-spotting and research brief. Authority hints inside that analysis are search hypotheses only; do not cite or rely on them unless the same authority appears in the retrieved legal context.
 
 ═══ STRICT GENERATION RULES ═══
 1. ONLY use information from the CONTEXT block — never from training memory.
@@ -45,6 +46,7 @@ For Lao PDR legal questions, prioritize legislation from the Lao PDR Official Ga
 5. Be concise but complete — courts require precision.
 6. Return compact JSON only. Do not add markdown fences, commentary, or prose outside JSON.
 7. Keep output small: max 3 items per array, one sentence per item, statute text <= 240 characters, application.analysis <= 800 characters, reasoning_notes <= 120 characters.
+8. Return minified one-line JSON. Do not pretty-print, indent, or wrap in code fences.
 
 ═══ OUTPUT FORMAT (strict JSON) ═══
 {
@@ -184,6 +186,41 @@ class IracReasoningAgent(BaseAgent):
 
         if research and research.get("retrieved_documents"):
             settings = get_settings()
+            query_analysis = research.get("query_analysis") if isinstance(research.get("query_analysis"), dict) else {}
+            if query_analysis:
+                safe_analysis = {
+                    "jurisdiction": query_analysis.get("jurisdiction"),
+                    "practice_area": query_analysis.get("practice_area"),
+                    "issue_type": query_analysis.get("issue_type"),
+                    "legal_issues": query_analysis.get("legal_issues"),
+                    "material_facts": query_analysis.get("material_facts"),
+                    "missing_facts": query_analysis.get("missing_facts"),
+                    "requested_outcome": query_analysis.get("requested_outcome"),
+                    "authority_hints": [
+                        {
+                            "law_name": hint.get("law_name"),
+                            "article": hint.get("article"),
+                            "reason": hint.get("reason"),
+                        }
+                        for hint in (query_analysis.get("authority_hints") or [])[:4]
+                        if isinstance(hint, dict)
+                    ],
+                }
+                doc_parts.append(
+                    "[LEGAL QUESTION ANALYSIS]\n"
+                    f"{json.dumps(safe_analysis, ensure_ascii=False)[:1400]}"
+                )
+            retrieval = research.get("retrieval") if isinstance(research.get("retrieval"), dict) else {}
+            coverage = retrieval.get("coverage") if isinstance(retrieval.get("coverage"), dict) else {}
+            if coverage:
+                doc_parts.append(
+                    "[RETRIEVAL QUALITY] "
+                    f"count={coverage.get('count')} "
+                    f"statutes={coverage.get('statute_count')} "
+                    f"official_sources={coverage.get('official_source_count')} "
+                    f"clean_text={coverage.get('clean_text_count')} "
+                    f"reason={coverage.get('reason') or 'ok'}"
+                )
             for chunk in research["retrieved_documents"][:max(1, settings.reasoning_context_top_k)]:
                 section = f" {chunk.get('section')}" if chunk.get("section") else ""
                 score = f" score={chunk.get('final_score'):.4f}" if isinstance(chunk.get("final_score"), (int, float)) else ""
@@ -250,21 +287,31 @@ class IracReasoningAgent(BaseAgent):
             # Strip markdown code fences if present
             clean = self._extract_json_payload(text)
             data = json.loads(clean)
-
-            # Handle insufficient_context flag
-            if data.get("insufficient_context"):
-                log.warning("reasoning.insufficient_context", reason=data.get("reason"))
-                return self._insufficient_context_response(question, data.get("reason", ""))
-
-            confidence = float(data.get("confidence", 0.75))
-            return {**data, "_confidence": confidence}
+            return self._normalise_parsed_irac(data, question)
 
         except (json.JSONDecodeError, ValueError):
             log.warning("reasoning.json_parse_failed", raw_length=len(text))
+            repaired = self._try_parse_repaired_json(text)
+            if repaired:
+                return self._normalise_parsed_irac(repaired, question)
+            if self._looks_like_structured_json(text):
+                return self._structured_parse_failure_response(question)
             return self._fallback_response(question, text)
 
+    def _normalise_parsed_irac(self, data: dict[str, Any], question: str) -> dict[str, Any]:
+        if data.get("insufficient_context"):
+            log.warning("reasoning.insufficient_context", reason=data.get("reason"))
+            return self._insufficient_context_response(question, data.get("reason", ""))
+
+        data = {
+            **data,
+            "irac": self._normalise_irac_shape(data.get("irac"), question),
+        }
+        confidence = float(data.get("confidence", 0.75))
+        return {**data, "_confidence": confidence}
+
     def _extract_json_payload(self, text: str) -> str:
-        clean = re.sub(r"```(?:json)?\s*|\s*```", "", text.strip())
+        clean = self._strip_json_fences(text)
         if clean.startswith("{") and clean.endswith("}"):
             return clean
 
@@ -273,6 +320,134 @@ class IracReasoningAgent(BaseAgent):
         if start >= 0 and end > start:
             return clean[start : end + 1]
         return clean
+
+    def _try_parse_repaired_json(self, text: str) -> dict[str, Any] | None:
+        clean = self._strip_json_fences(text)
+        start = clean.find("{")
+        if start >= 0:
+            clean = clean[start:].strip()
+
+        decoder = json.JSONDecoder()
+        try:
+            parsed, _ = decoder.raw_decode(clean)
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            pass
+
+        repaired = self._close_incomplete_json(clean)
+        if not repaired:
+            return None
+
+        try:
+            parsed = json.loads(repaired)
+        except (json.JSONDecodeError, ValueError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def _strip_json_fences(self, text: str) -> str:
+        return re.sub(r"```(?:json)?\s*|\s*```", "", text.strip(), flags=re.IGNORECASE)
+
+    def _normalise_irac_shape(self, value: Any, question: str) -> dict[str, Any]:
+        irac = value if isinstance(value, dict) else {}
+        issue = irac.get("issue") if isinstance(irac.get("issue"), dict) else {}
+        rule = irac.get("rule") if isinstance(irac.get("rule"), dict) else {}
+        application = irac.get("application") if isinstance(irac.get("application"), dict) else {}
+        conclusion = irac.get("conclusion") if isinstance(irac.get("conclusion"), dict) else {}
+
+        return {
+            "issue": {
+                "primary": str(issue.get("primary") or question),
+                "secondary": self._string_list(issue.get("secondary")),
+            },
+            "rule": {
+                "statutes": rule.get("statutes") if isinstance(rule.get("statutes"), list) else [],
+                "precedents": rule.get("precedents") if isinstance(rule.get("precedents"), list) else [],
+            },
+            "application": {
+                "analysis": str(application.get("analysis") or ""),
+                "strengths": self._string_list(application.get("strengths")),
+                "weaknesses": self._string_list(application.get("weaknesses")),
+                "counter_args": self._string_list(application.get("counter_args")),
+                "rebuttals": self._string_list(application.get("rebuttals")),
+            },
+            "conclusion": {
+                "recommendation": str(conclusion.get("recommendation") or ""),
+                "action_steps": self._string_list(conclusion.get("action_steps")),
+                "risk_level": self._risk_level(conclusion.get("risk_level")),
+                "win_probability": self._probability(conclusion.get("win_probability")),
+                "settlement_note": conclusion.get("settlement_note") if isinstance(conclusion.get("settlement_note"), str) else None,
+            },
+        }
+
+    def _string_list(self, value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip() for item in value if str(item).strip()]
+
+    def _risk_level(self, value: Any) -> str:
+        risk = str(value or "MEDIUM").strip().upper()
+        return risk if risk in {"LOW", "MEDIUM", "HIGH"} else "MEDIUM"
+
+    def _probability(self, value: Any) -> float:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return 0.5
+        return max(0.0, min(1.0, number))
+
+    def _close_incomplete_json(self, text: str) -> str | None:
+        clean = text.strip()
+        if not clean.startswith("{"):
+            return None
+
+        stack: list[str] = []
+        in_string = False
+        escaped = False
+
+        for char in clean:
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                stack.append("}")
+            elif char == "[":
+                stack.append("]")
+            elif char in "}]":
+                if not stack or stack[-1] != char:
+                    return None
+                stack.pop()
+
+        if in_string:
+            clean += '"'
+
+        return clean + "".join(reversed(stack))
+
+    def _looks_like_structured_json(self, text: str) -> bool:
+        clean = text.strip()
+        return clean.startswith("{") or "```json" in clean.lower() or '"irac"' in clean
+
+    def _structured_parse_failure_response(self, question: str) -> dict[str, Any]:
+        if contains_lao_script(question):
+            reason = (
+                "ຄຳຕອບໂຄງສ້າງຈາກແບບຈຳລອງບໍ່ສົມບູນ ລະບົບຈຶ່ງບໍ່ຄວນນຳຂໍ້ມູນດິບມາສະແດງເປັນຄຳປຶກສາ."
+            )
+        elif contains_thai_script(question):
+            reason = (
+                "คำตอบแบบมีโครงสร้างจากโมเดลไม่สมบูรณ์ ระบบจึงไม่ควรนำข้อมูลดิบมาแสดงเป็นคำปรึกษา."
+            )
+        else:
+            reason = (
+                "The model returned an incomplete structured answer, so the raw payload was withheld."
+            )
+        return self._insufficient_context_response(question, reason)
 
     def _insufficient_context_texts(self, question: str, reason: str) -> dict[str, Any]:
         if contains_lao_script(question):
@@ -373,6 +548,9 @@ class IracReasoningAgent(BaseAgent):
 
     def _fallback_response(self, question: str, raw_text: str) -> dict[str, Any]:
         """When JSON parse fails, wrap raw text in minimal IRAC structure."""
+        if self._looks_like_structured_json(raw_text):
+            return self._structured_parse_failure_response(question)
+
         language = infer_response_language(question)
         if language == "lo":
             recommendation = "ກະລຸນາກວດສອບຄຳຕອບນີ້ກັບທະນາຍຄວາມລາວກ່ອນນຳໄປໃຊ້ຈິງ."

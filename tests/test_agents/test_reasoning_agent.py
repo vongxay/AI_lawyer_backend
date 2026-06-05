@@ -95,6 +95,40 @@ class TestIracReasoningAgent:
         assert "irac" in result.data
         assert result.confidence == 0.5  # fallback confidence
 
+    async def test_fallback_does_not_surface_raw_structured_json(self, mock_llm, agent):
+        mock_llm.generate = AsyncMock(return_value=LlmResult(
+            text='```json\n{"irac":{"issue":{"primary":"test","secondary":[]},"application":{"analysis":"partial"',
+            model="stub",
+            provider="stub",
+        ))
+        result = await agent.run(
+            question="ປະເພດດິນອຸດສາຫະກຳສາມາດປຸກສ້າງໄດ້ບໍ?",
+            research=None,
+            document=None,
+            evidence=None,
+            memory={"empty": True},
+        )
+        analysis = result.data["irac"]["application"]["analysis"]
+        assert result.ok
+        assert "```json" not in analysis
+        assert '"irac"' not in analysis
+
+    async def test_repairs_truncated_json_when_possible(self, mock_llm, agent):
+        mock_llm.generate = AsyncMock(return_value=LlmResult(
+            text='{"irac":{"issue":{"primary":"test issue","secondary":[]},"rule":{"statutes":[],"precedents":[]},"application":{"analysis":"test analysis","strengths":[],"weaknesses":[],"counter_args":[],"rebuttals":[]},"conclusion":{"recommendation":"test recommendation"',
+            model="stub",
+            provider="stub",
+        ))
+        result = await agent.run(
+            question="test",
+            research=None,
+            document=None,
+            evidence=None,
+            memory={"empty": True},
+        )
+        assert result.ok
+        assert result.data["irac"]["conclusion"]["recommendation"] == "test recommendation"
+
     async def test_insufficient_context_response(self, mock_llm, agent):
         mock_llm.generate = AsyncMock(return_value=LlmResult(
             text=json.dumps({"insufficient_context": True, "reason": "No laws found"}),
