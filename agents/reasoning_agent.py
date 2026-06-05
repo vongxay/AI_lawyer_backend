@@ -950,59 +950,7 @@ class IracReasoningAgent(BaseAgent):
             "citations": [],
         }
 
-        return {
-            "irac": {
-                "issue": {"primary": question, "secondary": []},
-                "rule": {"statutes": [], "precedents": []},
-                "application": {
-                    "analysis": f"ข้อมูลไม่เพียงพอ: {reason}",
-                    "strengths": [], "weaknesses": [],
-                    "counter_args": [], "rebuttals": [],
-                },
-                "conclusion": {
-                    "recommendation": "แนะนำให้ปรึกษาทนายความโดยตรง เนื่องจากข้อมูลในระบบไม่เพียงพอ",
-                    "action_steps": ["ติดต่อทนายความผู้เชี่ยวชาญ", "รวบรวมเอกสารที่เกี่ยวข้อง"],
-                    "risk_level": "MEDIUM",
-                    "win_probability": 0.5,
-                    "settlement_note": None,
-                },
-            },
-            "confidence": 0.3,
-            "_confidence": 0.3,
-            "citations": [],
-        }
-
     def _fallback_response(self, question: str, raw_text: str) -> dict[str, Any]:
-        """When JSON parse fails, wrap raw text in minimal IRAC structure."""
-        if self._looks_like_structured_json(raw_text) or self._looks_like_prompt_leak(raw_text):
-            return self._structured_parse_failure_response(question)
-
-        language = infer_response_language(question)
-        if language == "lo":
-            recommendation = "ກະລຸນາກວດສອບຄຳຕອບນີ້ກັບທະນາຍຄວາມລາວກ່ອນນຳໄປໃຊ້ຈິງ."
-        elif language == "th":
-            recommendation = "โปรดตรวจสอบคำตอบนี้กับทนายความก่อนนำไปใช้จริง."
-        else:
-            recommendation = "Please review this answer with a qualified lawyer before taking real-world action."
-
-        return {
-            "irac": {
-                "issue": {"primary": question, "secondary": []},
-                "rule": {"statutes": [], "precedents": []},
-                "application": {
-                    "analysis": raw_text[:2000],
-                    "strengths": [], "weaknesses": [],
-                    "counter_args": [], "rebuttals": [],
-                },
-                "conclusion": {
-                    "recommendation": recommendation,
-                    "action_steps": [],
-                    "risk_level": "MEDIUM",
-                    "win_probability": 0.5,
-                    "settlement_note": None,
-                },
-            },
-            "confidence": 0.5,
-            "_confidence": 0.5,
-            "citations": [],
-        }
+        """When JSON parsing fails, withhold raw model text instead of treating it as legal analysis."""
+        _ = raw_text
+        return self._structured_parse_failure_response(question)

@@ -107,7 +107,8 @@ class TestIracReasoningAgent:
         )
         assert result.ok  # Should not raise — fallback kicks in
         assert "irac" in result.data
-        assert result.confidence == 0.5  # fallback confidence
+        assert "plain text response" not in result.data["irac"]["application"]["analysis"]
+        assert result.confidence == 0.3  # unsafe raw model output is withheld
 
     async def test_fallback_does_not_surface_raw_structured_json(self, mock_llm, agent):
         mock_llm.generate = AsyncMock(return_value=LlmResult(

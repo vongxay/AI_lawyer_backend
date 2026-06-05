@@ -792,7 +792,7 @@ class WorkflowManager:
         memory_hash: str | None,
     ) -> str:
         payload = {
-            "answer_pipeline_version": 9,
+            "answer_pipeline_version": 10,
             "question": question,
             "case_id": case_id,
             "jurisdiction": jurisdiction,
