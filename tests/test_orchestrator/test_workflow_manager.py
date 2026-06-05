@@ -98,6 +98,21 @@ class TestWorkflowManager:
         assert "reasoning" in result.agents_used
         assert "verification" in result.agents_used
 
+    async def test_conversation_greeting_bypasses_rag_and_reasoning(self, workflow):
+        result = await workflow.orchestrate(
+            question="\u0e2a\u0e1a\u0e32\u0e22\u0e14\u0e35\u0e44\u0e2b\u0e21",
+            case_id=None,
+        )
+
+        assert result.response["query_type"] == "conversation"
+        assert result.response["answer"]
+        assert result.agents_used == ["conversation"]
+        workflow._research_agent.run.assert_not_called()
+        workflow._reasoning_agent.run.assert_not_called()
+        workflow._verification_agent.run.assert_not_called()
+        workflow._case_memory.update.assert_not_called()
+        workflow._audit.log_event.assert_called_once()
+
     async def test_case_memory_updated_after_orchestration(self, workflow):
         await workflow.orchestrate(question="test", case_id="case-123")
         workflow._case_memory.update.assert_called_once()

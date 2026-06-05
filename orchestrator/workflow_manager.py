@@ -41,7 +41,7 @@ from agents.risk_strategy_agent import RiskStrategyAgent
 from agents.verification_agent import CitationVerificationAgent
 from core.config import get_settings
 from core.exceptions import ExternalServiceError, LowConfidenceError, ProviderNotConfiguredError
-from core.jurisdiction import infer_jurisdiction, infer_response_language
+from core.jurisdiction import contains_lao_script, contains_thai_script, infer_jurisdiction, infer_response_language
 from core.logging import get_logger
 from memory.case_memory import CaseMemoryService
 from memory.session_memory import SessionMemoryService
@@ -140,6 +140,8 @@ class WorkflowManager:
         session_memory = await self._session_memory.get(sid, tenant_id=tenant_id, user_id=user_id)
         memory = self._merge_memory(case_memory, session_memory)
         contextual_question = self._contextual_question(clean_question, session_memory)
+        classified_type = await self._classifier.classify(clean_question)
+        query_type = self._query_type_for_mode(effective_mode, classified_type)
 
         cache_key = self._build_cache_key(
             question=clean_question,
@@ -147,6 +149,7 @@ class WorkflowManager:
             jurisdiction=effective_jurisdiction,
             user_id=user_id,
             tenant_id=tenant_id,
+            query_type=query_type,
             query_mode=effective_mode,
             response_style=effective_style,
             urgency=effective_urgency,
@@ -179,11 +182,48 @@ class WorkflowManager:
         # ── Step 1: Load case memory ──────────────────────────────────────────
         # Memory is loaded before cache lookup so session-aware answers never reuse stale context.
 
-        # ── Step 2: Classify query ────────────────────────────────────────────
-        classified_type = await self._classifier.classify(contextual_question)
-        query_type = self._query_type_for_mode(effective_mode, classified_type)
+        # ── Step 2: Dynamic agent selection ──────────────────────────────────
+        if query_type == "conversation" and clean_doc_text is None and not evidence_files:
+            processing_ms = int((time.perf_counter() - started) * 1000)
+            response = self._build_conversation_response(
+                question=clean_question,
+                memory=memory,
+                query_mode=effective_mode,
+                response_style="plain",
+                response_language=response_language,
+                processing_ms=processing_ms,
+                session_id=sid,
+            )
+            await self._audit.log_event(
+                user_id=user_id,
+                tenant_id=tenant_id,
+                agent="conversation",
+                query=clean_question,
+                confidence=response["confidence"],
+                agents_used=response["agents_used"],
+                processing_time_ms=processing_ms,
+                escalated=False,
+            )
+            if cacheable:
+                await self._cache.set(
+                    cache_key,
+                    {
+                        "response": response,
+                        "confidence": response["confidence"],
+                        "agents_used": response["agents_used"],
+                        "escalated_to_expert": False,
+                    },
+                    namespace="legal_qa",
+                )
+            return OrchestrationResult(
+                response=response,
+                confidence=response["confidence"],
+                agents_used=response["agents_used"],
+                processing_time_ms=processing_ms,
+                escalated_to_expert=False,
+                session_id=sid,
+            )
 
-        # ── Step 3: Dynamic agent selection ──────────────────────────────────
         plan = self._selector.select(
             query_type,
             force_document=bool(document_text),
@@ -413,6 +453,133 @@ class WorkflowManager:
         from agents.base_agent import AgentResult
         return AgentResult(data={}, agent_name="noop")
 
+    def _build_conversation_response(
+        self,
+        *,
+        question: str,
+        memory: dict[str, Any],
+        query_mode: str,
+        response_style: str,
+        response_language: str,
+        processing_ms: int,
+        session_id: str,
+    ) -> dict[str, Any]:
+        answer = self._conversation_answer(question, memory, response_language)
+        irac = self._empty_irac(question, answer)
+        memory_used = not memory.get("empty", True)
+        return {
+            "irac": irac,
+            "answer": answer,
+            "query_type": "conversation",
+            "query_mode": query_mode,
+            "response_style": response_style,
+            "response_language": response_language,
+            "session_id": session_id,
+            "citations": [],
+            "citations_verified": True,
+            "confidence": 0.98,
+            "agents_used": ["conversation"],
+            "processing_time_ms": processing_ms,
+            "escalated_to_expert": False,
+            "risk": None,
+            "document": None,
+            "evidence": None,
+            "answer_quality": {
+                "rag_used": False,
+                "llm_reasoning_used": False,
+                "reason": "non_legal_conversation",
+                "conversation_memory": {
+                    "used": memory_used,
+                    "message_count": memory.get("session_message_count", 0),
+                },
+            },
+            "disclaimer": self._conversation_disclaimer(response_language),
+        }
+
+    def _conversation_answer(self, question: str, memory: dict[str, Any], response_language: str) -> str:
+        lowered = question.casefold()
+        asks_memory = any(
+            marker in lowered
+            for marker in (
+                "\u0e88\u0eb7\u0ec8\u0ec4\u0e94\u0ec9",
+                "\u0e08\u0e33\u0e44\u0e14\u0e49",
+                "remember",
+                "what did we discuss",
+            )
+        )
+        asks_capability = any(
+            marker in lowered
+            for marker in (
+                "\u0eaa\u0eb2\u0ea1\u0eb2\u0e94\u0e8a\u0ec8\u0ea7\u0e8d",
+                "\u0e97\u0e33\u0e2d\u0e30\u0e44\u0e23\u0e44\u0e14\u0e49",
+                "what can you do",
+                "help me with",
+            )
+        )
+        thanks = any(marker in lowered for marker in ("\u0e82\u0ead\u0e9a\u0ec3\u0e88", "\u0e02\u0e2d\u0e1a\u0e04\u0e38\u0e13", "thank"))
+
+        if response_language == "lo" or contains_lao_script(question):
+            if asks_memory:
+                summary = str(memory.get("conversation_summary") or "").strip()
+                if summary:
+                    return f"\u0e88\u0eb7\u0ec8\u0ec4\u0e94\u0ec9. \u0eaa\u0eb0\u0eab\u0ebc\u0eb8\u0e9a\u0eaa\u0eb1\u0ec9\u0e99\u0ec6: {summary[:700]}"
+                return "\u0e95\u0ead\u0e99\u0e99\u0eb5\u0ec9\u0e82\u0ec9\u0ead\u0e8d\u0e8d\u0eb1\u0e87\u0e9a\u0ecd\u0ec8\u0ea1\u0eb5\u0e9b\u0eb0\u0eab\u0ea7\u0eb1\u0e94\u0eaa\u0ebb\u0e99\u0e97\u0eb0\u0e99\u0eb2\u0e81\u0ec8\u0ead\u0e99\u0edc\u0ec9\u0eb2\u0e97\u0eb5\u0ec8\u0e9e\u0ecd\u0e88\u0eb0\u0eaa\u0eb0\u0eab\u0ebc\u0eb8\u0e9a\u0ec4\u0e94\u0ec9."
+            if asks_capability:
+                return "\u0e82\u0ec9\u0ead\u0e8d\u0e8a\u0ec8\u0ea7\u0e8d\u0ead\u0eb0\u0e97\u0eb4\u0e9a\u0eb2\u0e8d\u0e81\u0ebb\u0e94\u0edd\u0eb2\u0e8d\u0ea5\u0eb2\u0ea7, \u0e84\u0ebb\u0ec9\u0e99\u0eab\u0eb2\u0ea1\u0eb2\u0e94\u0e95\u0eb2\u0e97\u0eb5\u0ec8\u0e81\u0ec8\u0ebd\u0ea7\u0e82\u0ec9\u0ead\u0e87, \u0eaa\u0eb0\u0eab\u0ebc\u0eb8\u0e9a\u0ec0\u0ead\u0e81\u0eb0\u0eaa\u0eb2\u0e99 \u0ec1\u0ea5\u0eb0\u0e8a\u0ec8\u0ea7\u0e8d\u0ea7\u0eb4\u0ec0\u0e84\u0eb2\u0eb0\u0e84\u0eb3\u0e96\u0eb2\u0ea1\u0e97\u0eb2\u0e87\u0e81\u0ebb\u0e94\u0edd\u0eb2\u0e8d\u0ec4\u0e94\u0ec9."
+            if thanks:
+                return "\u0e94\u0ec9\u0ea7\u0e8d\u0e84\u0ea7\u0eb2\u0ea1\u0e8d\u0eb4\u0e99\u0e94\u0eb5. \u0e96\u0ec9\u0eb2\u0ea1\u0eb5\u0e84\u0eb3\u0e96\u0eb2\u0ea1\u0e81\u0ebb\u0e94\u0edd\u0eb2\u0e8d\u0ea5\u0eb2\u0ea7\u0ec0\u0e9e\u0eb5\u0ec8\u0ea1 \u0eaa\u0ebb\u0ec8\u0e87\u0ea1\u0eb2\u0ec4\u0e94\u0ec9\u0ec0\u0ea5\u0eb5\u0e8d."
+            return "\u0eaa\u0eb0\u0e9a\u0eb2\u0e8d\u0e94\u0eb5, \u0e82\u0ec9\u0ead\u0e8d\u0e9e\u0ec9\u0ead\u0ea1\u0e8a\u0ec8\u0ea7\u0e8d. \u0e96\u0ec9\u0eb2\u0ea1\u0eb5\u0e84\u0eb3\u0e96\u0eb2\u0ea1\u0e81\u0ebb\u0e94\u0edd\u0eb2\u0e8d\u0ea5\u0eb2\u0ea7 \u0eab\u0ebc\u0eb7 \u0e95\u0ec9\u0ead\u0e87\u0e81\u0eb2\u0e99\u0e95\u0ea7\u0e94\u0ea1\u0eb2\u0e94\u0e95\u0eb2\u0ec3\u0e94 \u0e96\u0eb2\u0ea1\u0ea1\u0eb2\u0ec4\u0e94\u0ec9\u0ec0\u0ea5\u0eb5\u0e8d."
+
+        if response_language == "th" or contains_thai_script(question):
+            if asks_memory:
+                summary = str(memory.get("conversation_summary") or "").strip()
+                if summary:
+                    return f"จำได้ครับ สรุปสั้น ๆ คือ: {summary[:700]}"
+                return "ตอนนี้ยังไม่มีประวัติสนทนาก่อนหน้าที่พอจะสรุปได้ครับ"
+            if asks_capability:
+                return "ผมช่วยอธิบายกฎหมายลาว ค้นหามาตราที่เกี่ยวข้อง สรุปเอกสาร และช่วยวิเคราะห์คำถามทางกฎหมายให้เป็นภาษาที่เข้าใจง่ายได้ครับ"
+            if thanks:
+                return "ยินดีครับ ถ้ามีคำถามกฎหมายลาวเพิ่มเติม ส่งมาได้เลยครับ"
+            return "สวัสดีครับ ผมพร้อมช่วยครับ ถ้ามีคำถามเกี่ยวกับกฎหมายลาวหรืออยากให้ช่วยดูมาตราไหน ส่งคำถามมาได้เลยครับ"
+
+        if asks_memory:
+            summary = str(memory.get("conversation_summary") or "").strip()
+            if summary:
+                return f"Yes. In short, we discussed: {summary[:700]}"
+            return "I do not have enough prior conversation context to summarize yet."
+        if asks_capability:
+            return "I can help explain Lao law, find relevant statutory provisions, summarize documents, and reason through legal questions in plain language."
+        if thanks:
+            return "You are welcome. Send me the Lao legal question whenever you are ready."
+        return "Hello. I am ready to help with Lao legal questions, document review, or finding the relevant legal article."
+
+    def _conversation_disclaimer(self, response_language: str) -> str:
+        if response_language == "lo":
+            return "\u0e82\u0ecd\u0ec9\u0e84\u0ea7\u0eb2\u0ea1\u0e99\u0eb5\u0ec9\u0ec0\u0e9b\u0eb1\u0e99\u0e81\u0eb2\u0e99\u0eaa\u0ebb\u0e99\u0e97\u0eb0\u0e99\u0eb2\u0e97\u0ebb\u0ec8\u0ea7\u0ec4\u0e9b \u0e9a\u0ecd\u0ec8\u0ec1\u0ea1\u0ec8\u0e99\u0e84\u0eb3\u0e9b\u0eb6\u0e81\u0eaa\u0eb2\u0e81\u0ebb\u0e94\u0edd\u0eb2\u0e8d."
+        if response_language == "th":
+            return "ข้อความนี้เป็นการสนทนาทั่วไป ไม่ใช่คำปรึกษากฎหมาย"
+        return "This is a general conversational response, not legal advice."
+
+    def _empty_irac(self, question: str, answer: str) -> dict[str, Any]:
+        return {
+            "issue": {"primary": question, "secondary": []},
+            "rule": {"statutes": [], "precedents": []},
+            "application": {
+                "analysis": "",
+                "strengths": [],
+                "weaknesses": [],
+                "counter_args": [],
+                "rebuttals": [],
+            },
+            "conclusion": {
+                "recommendation": answer,
+                "action_steps": [],
+                "risk_level": "LOW",
+                "win_probability": 0.0,
+                "settlement_note": None,
+            },
+        }
+
     def _merge_memory(self, case_memory: dict[str, Any], session_memory: dict[str, Any]) -> dict[str, Any]:
         merged = dict(case_memory or {})
         has_case_memory = not merged.get("empty")
@@ -488,6 +655,7 @@ class WorkflowManager:
         jurisdiction: str | None,
         user_id: str | None,
         tenant_id: str | None,
+        query_type: str | None,
         query_mode: str | None,
         response_style: str | None,
         urgency: str | None,
@@ -497,12 +665,13 @@ class WorkflowManager:
         memory_hash: str | None,
     ) -> str:
         payload = {
-            "answer_pipeline_version": 4,
+            "answer_pipeline_version": 5,
             "question": question,
             "case_id": case_id,
             "jurisdiction": jurisdiction,
             "user_id": user_id,
             "tenant_id": tenant_id,
+            "query_type": query_type,
             "query_mode": query_mode,
             "response_style": response_style,
             "urgency": urgency,

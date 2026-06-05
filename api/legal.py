@@ -31,6 +31,7 @@ from core.exceptions import FileTooLargeError, UnsupportedFileTypeError
 from core.jurisdiction import infer_response_language
 from core.logging import get_logger
 from core.security import CurrentUser, require_roles
+from orchestrator.query_classifier import QueryClassifier
 from services.llm_service import LlmService, Message
 
 router = APIRouter(prefix="/api/v1/legal", tags=["legal"])
@@ -131,12 +132,15 @@ async def legal_query_stream(
     async def event_stream() -> AsyncIterator[str]:
         try:
             response_language = infer_response_language(payload.question)
+            preclassified_type = await QueryClassifier().classify(payload.question)
+            likely_conversation = preclassified_type == "conversation" and payload.query_mode == "general"
             yield _sse("meta", {"status": "started", "response_language": response_language})
 
-            for msg in _stream_progress_messages(response_language):
-                if await request.is_disconnected():
-                    return
-                yield _sse("token", {"token": msg + "\n"})
+            if not likely_conversation:
+                for msg in _stream_progress_messages(response_language):
+                    if await request.is_disconnected():
+                        return
+                    yield _sse("token", {"token": msg + "\n"})
 
             result = await workflow.orchestrate(
                 question=payload.question,
@@ -151,14 +155,16 @@ async def legal_query_stream(
                 model_id=payload.model_id,
             )
             response = result.response
+            is_response_conversation = response.get("query_type") == "conversation"
 
             yield _sse("answer", {"answer": response.get("answer") or ""})
-            if payload.include_irac:
+            if payload.include_irac and not is_response_conversation:
                 yield _sse("irac", response.get("irac", {}))
-            if payload.include_citations:
+            if payload.include_citations and not is_response_conversation:
                 yield _sse("citations", response.get("citations", []))
 
-            yield _sse("confidence", {"score": response.get("confidence", result.confidence)})
+            if not is_response_conversation:
+                yield _sse("confidence", {"score": response.get("confidence", result.confidence)})
             yield _sse(
                 "meta",
                 {

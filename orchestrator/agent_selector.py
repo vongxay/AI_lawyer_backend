@@ -26,6 +26,11 @@ class AgentPlan:
 # ── Static plans per query type ────────────────────────────────────────────────
 # Matches Section 3.1 of blueprint exactly.
 AGENT_PLANS: dict[QueryType, AgentPlan] = {
+    "conversation": AgentPlan(
+        use_research=False,
+        use_reasoning=False,
+        use_verification=False,
+    ),
     "legal_question": AgentPlan(
         use_research=True,
         use_reasoning=True,
