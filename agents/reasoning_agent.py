@@ -199,8 +199,10 @@ class IracReasoningAgent(BaseAgent):
         query_mode: str | None = None,
         response_style: str | None = None,
         query_type: str | None = None,
+        model_override: str | None = None,
     ) -> dict[str, Any]:
         settings = get_settings()
+        reasoning_model = model_override or settings.model_reasoning
         language = infer_response_language(question, response_language)
 
         # Build context from all upstream agents
@@ -226,6 +228,7 @@ class IracReasoningAgent(BaseAgent):
             query_mode=query_mode,
             response_style=response_style,
             query_type=query_type,
+            model_override=reasoning_model,
         )
         if focused_response:
             log.info("reasoning.focused_statutory_response", question_type=query_type)
@@ -242,7 +245,7 @@ class IracReasoningAgent(BaseAgent):
         )
 
         result = await self._call_llm(
-            model=settings.model_reasoning,
+            model=reasoning_model,
             system=f"{_IRAC_SYSTEM_PROMPT}\n\nLANGUAGE OVERRIDE:\n{response_language_instruction(language)}",
             user_message=user_message,
             max_tokens=settings.llm_max_tokens_reasoning,
@@ -400,6 +403,7 @@ class IracReasoningAgent(BaseAgent):
         query_mode: str | None,
         response_style: str | None,
         query_type: str | None,
+        model_override: str | None = None,
     ) -> dict[str, Any] | None:
         if query_type not in {None, "legal_question"}:
             return None
@@ -431,7 +435,7 @@ class IracReasoningAgent(BaseAgent):
 
         try:
             result = await self._call_llm(
-                model=settings.model_reasoning,
+                model=model_override or settings.model_reasoning,
                 system=f"{_FOCUSED_STATUTORY_SYSTEM_PROMPT}\n\nLANGUAGE OVERRIDE:\n{response_language_instruction(language)}",
                 user_message=_FOCUSED_STATUTORY_TEMPLATE.format(
                     title=candidate["title"],

@@ -132,6 +132,8 @@ class WorkflowManager:
         effective_style = self._normalise_response_style(response_style, query_mode=effective_mode)
         effective_urgency = urgency if urgency in {"normal", "urgent", "critical"} else "normal"
         response_language = infer_response_language(question)
+        selected_model_id = self._normalise_model_id(model_id)
+        model_policy = self._model_policy(selected_model_id)
 
         # ── Step 0: PII redaction on all user input ───────────────────────────
         clean_question = self._pii.redact_text(question)
@@ -169,7 +171,7 @@ class WorkflowManager:
             query_mode=effective_mode,
             response_style=effective_style,
             urgency=effective_urgency,
-            model_id=model_id,
+            model_id=selected_model_id,
             response_language=response_language,
             conversation_hash=session_memory.get("cache_key", "empty"),
             memory_hash=self._memory_hash(memory),
@@ -184,6 +186,7 @@ class WorkflowManager:
                     "processing_time_ms": processing_ms,
                     "cached": True,
                     "session_id": sid,
+                    "selected_model_id": selected_model_id,
                 }
                 log.info("orchestrator.cache_hit", session_id=sid, cache_key=cache_key)
                 return OrchestrationResult(
@@ -303,6 +306,7 @@ class WorkflowManager:
             jurisdiction=effective_jurisdiction,
             case_id=case_id,
             response_language=response_language,
+            selected_model_id=selected_model_id,
             conversation_messages=session_memory.get("message_count", 0),
         )
 
@@ -329,6 +333,7 @@ class WorkflowManager:
                         question=clean_question,
                         document_text=clean_doc_text,
                         case_context=memory.get("facts_summary"),
+                        model_override=model_policy["document"],
                     )
                 )
 
@@ -339,6 +344,7 @@ class WorkflowManager:
                         question=clean_question,
                         evidence_files=evidence_files,
                         case_context=memory.get("facts_summary"),
+                        model_override=model_policy["evidence"],
                     )
                 )
 
@@ -362,6 +368,7 @@ class WorkflowManager:
             query_mode=effective_mode,
             response_style=effective_style,
             query_type=query_type,
+            model_override=model_policy["reasoning"],
         )
         if not reasoning_result.ok:
             if "No real LLM API key" in (reasoning_result.error or ""):
@@ -376,13 +383,17 @@ class WorkflowManager:
         agents_used.append("verification")
         citations_to_verify = self._extract_citations(irac_data)
 
-        verify_coro = self._verification_agent.run(citations=citations_to_verify)
+        verify_coro = self._verification_agent.run(
+            citations=citations_to_verify,
+            model_override=model_policy["verification"],
+        )
         risk_coro = (
             self._risk_agent.run(
                 question=clean_question,
                 irac=irac_data,
                 research=research_data,
                 response_language=response_language,
+                model_override=model_policy["risk"],
             )
             if plan.use_risk
             else self._noop()
@@ -482,6 +493,8 @@ class WorkflowManager:
             response_style=effective_style,
             session_id=sid,
             response_language=response_language,
+            selected_model_id=selected_model_id,
+            model_policy=model_policy,
             intent_route=intent_route_data,
         )
 
@@ -512,6 +525,33 @@ class WorkflowManager:
         """Placeholder coroutine when an agent is not needed."""
         from agents.base_agent import AgentResult
         return AgentResult(data={}, agent_name="noop")
+
+    def _normalise_model_id(self, model_id: str | None) -> str:
+        normalized = str(model_id or "legal-pro").strip().lower().replace("_", "-")
+        if normalized in {"legal-base", "base", "economy", "fast", "cheap"}:
+            return "legal-base"
+        if normalized in {"legal-expert", "expert", "premium"}:
+            return "legal-expert"
+        return "legal-pro"
+
+    def _model_policy(self, model_id: str | None) -> dict[str, str]:
+        selected = self._normalise_model_id(model_id)
+        settings = self._settings
+        if selected == "legal-base":
+            return {
+                "reasoning": settings.model_economy,
+                "document": settings.model_economy,
+                "evidence": settings.model_economy,
+                "verification": settings.model_economy,
+                "risk": settings.model_economy,
+            }
+        return {
+            "reasoning": settings.model_reasoning,
+            "document": settings.model_document,
+            "evidence": settings.model_evidence,
+            "verification": settings.model_verification,
+            "risk": settings.model_risk,
+        }
 
     def _build_conversation_response(
         self,
@@ -799,7 +839,7 @@ class WorkflowManager:
         memory_hash: str | None,
     ) -> str:
         payload = {
-            "answer_pipeline_version": 12,
+            "answer_pipeline_version": 13,
             "question": question,
             "case_id": case_id,
             "jurisdiction": jurisdiction,
@@ -994,6 +1034,8 @@ class WorkflowManager:
         response_style: str,
         session_id: str,
         response_language: str,
+        selected_model_id: str,
+        model_policy: dict[str, str],
         intent_route: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         irac = irac_data.get("irac", {})
@@ -1005,6 +1047,7 @@ class WorkflowManager:
             "query_mode": query_mode,
             "response_style": response_style,
             "response_language": response_language,
+            "selected_model_id": selected_model_id,
             "session_id": session_id,
             "citations": (verification_data or {}).get("citations", irac_data.get("citations", [])),
             "citations_verified": (verification_data or {}).get("citations_verified", False),
@@ -1020,6 +1063,7 @@ class WorkflowManager:
                 "intent_route": intent_route or {},
                 "guardrails": guardrails,
                 "retrieval": (research_data or {}).get("retrieval", {}),
+                "model_policy": model_policy,
             },
             "disclaimer": disclaimer,
         }

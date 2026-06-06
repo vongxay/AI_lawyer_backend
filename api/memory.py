@@ -108,7 +108,7 @@ async def get_case_memory(
         "irac_history": history,
         "timeline": timeline,
         "facts_summary": data.get("facts_summary"),
-        "jurisdiction": data.get("jurisdiction", "TH"),
+        "jurisdiction": data.get("jurisdiction", "laos"),
         "status": data.get("status", "active"),
         "irac_count": len(history),
         "key_citations_count": len(data.get("key_citations", [])),

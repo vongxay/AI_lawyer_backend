@@ -73,6 +73,7 @@ class RiskStrategyAgent(BaseAgent):
         irac: dict,
         research: dict | None = None,
         response_language: str | None = None,
+        model_override: str | None = None,
         **kwargs,
     ) -> dict[str, Any]:
         settings = get_settings()
@@ -86,7 +87,7 @@ class RiskStrategyAgent(BaseAgent):
         context_summary = self._build_context(question, irac_data, conclusion, application, research)
 
         result = await self._call_llm(
-            model=settings.model_risk,
+            model=model_override or settings.model_risk,
             system=f"{_RISK_SYSTEM_PROMPT}\n\nLANGUAGE OVERRIDE:\n{response_language_instruction(language)}",
             user_message=context_summary,
             max_tokens=settings.llm_max_tokens_risk,

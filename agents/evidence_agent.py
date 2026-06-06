@@ -71,6 +71,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
         question: str,
         evidence_files: list[EvidenceFile] | None = None,
         case_context: str | None = None,
+        model_override: str | None = None,
         **kwargs,
     ) -> dict[str, Any]:
         if not evidence_files:
@@ -83,6 +84,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
             }
 
         settings = get_settings()
+        evidence_model = model_override or settings.model_evidence
         results: list[dict] = []
         total_tokens = 0
 
@@ -91,7 +93,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
                 ev_file=ev_file,
                 question=question,
                 case_context=case_context,
-                model=settings.model_evidence,
+                model=evidence_model,
             )
             results.append(item_result)
             total_tokens += item_result.pop("_tokens", 0)

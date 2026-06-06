@@ -68,6 +68,7 @@ class DocumentAnalysisAgent(BaseAgent):
         document_text: str | None = None,
         document_base64: str | None = None,
         case_context: str | None = None,
+        model_override: str | None = None,
         **kwargs,
     ) -> dict[str, Any]:
         settings = get_settings()
@@ -83,7 +84,7 @@ class DocumentAnalysisAgent(BaseAgent):
             user_msg = self._build_vision_prompt(question, document_base64, case_context)
 
         result = await self._call_llm(
-            model=settings.model_document,
+            model=model_override or settings.model_document,
             system=_DOCUMENT_SYSTEM_PROMPT,
             user_message=user_msg,
             max_tokens=settings.llm_max_tokens_document,

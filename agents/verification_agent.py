@@ -51,7 +51,13 @@ class CitationVerificationAgent(BaseAgent):
         super().__init__(**kwargs)
         self._supabase = supabase
 
-    async def _execute(self, *, citations: list[dict], **kwargs) -> dict[str, Any]:
+    async def _execute(
+        self,
+        *,
+        citations: list[dict],
+        model_override: str | None = None,
+        **kwargs,
+    ) -> dict[str, Any]:
         if not citations:
             return {"citations": [], "citations_verified": True, "rejection_rate": 0.0, "_confidence": 1.0}
 
@@ -75,7 +81,10 @@ class CitationVerificationAgent(BaseAgent):
 
         # Step 3: LLM plausibility check for unverified
         if unverified_refs:
-            llm_results = await self._llm_plausibility_check(unverified_refs)
+            llm_results = await self._llm_plausibility_check(
+                unverified_refs,
+                model_override=model_override,
+            )
             verified.extend(llm_results)
 
         # Step 4: Compute rejection rate and alert if needed
@@ -240,7 +249,12 @@ class CitationVerificationAgent(BaseAgent):
         match = re.search(r"(?:มาตรา|section|sec\.?)\s*([0-9A-Za-z/.-]+)", ref, flags=re.IGNORECASE)
         return match.group(1) if match else None
 
-    async def _llm_plausibility_check(self, citations: list[dict]) -> list[dict]:
+    async def _llm_plausibility_check(
+        self,
+        citations: list[dict],
+        *,
+        model_override: str | None = None,
+    ) -> list[dict]:
         """Use fast LLM model to assess plausibility of citations not in DB."""
         settings = get_settings()
         if not settings.llm_verify_citations_with_llm:
@@ -255,7 +269,7 @@ class CitationVerificationAgent(BaseAgent):
 
         try:
             result = await self._call_llm(
-                model=settings.model_verification,
+                model=model_override or settings.model_verification,
                 system=_VERIFY_SYSTEM_PROMPT,
                 user_message=user_msg,
                 max_tokens=settings.llm_max_tokens_verification,

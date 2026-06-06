@@ -45,7 +45,7 @@ THAI_ARTICLE = "\u0e21\u0e32\u0e15\u0e23\u0e32"
 class Retriever:
     def __init__(self, supabase: "AsyncClient | None" = None) -> None:
         self._supabase = supabase
-        self._chunk_search_supports_tenant_param: bool | None = False
+        self._chunk_search_supports_tenant_param: bool | None = None
 
     async def retrieve(
         self,
@@ -93,6 +93,7 @@ class Retriever:
                 keyword_rows = await self._direct_keyword_search(
                     query=query,
                     jurisdiction=jurisdiction,
+                    tenant_id=tenant_id,
                     top_k=top_k,
                 )
                 if keyword_rows:
@@ -109,6 +110,7 @@ class Retriever:
         keyword_rows = await self._direct_keyword_search(
             query=query,
             jurisdiction=jurisdiction,
+            tenant_id=tenant_id,
             top_k=top_k,
         )
         if keyword_rows:
@@ -183,20 +185,11 @@ class Retriever:
         except Exception as exc:
             if tenant_id and "p_tenant_id" in str(exc):
                 self._chunk_search_supports_tenant_param = False
-                legacy_params = {key: value for key, value in params.items() if key != "p_tenant_id"}
-                try:
-                    result = await self._supabase.rpc("hybrid_document_chunk_search", legacy_params).execute()
-                    log.info(
-                        "retriever.chunk_search.legacy_signature",
-                        reason="p_tenant_id_not_available_in_database_function",
-                    )
-                    return [
-                        self._normalise_row({**row, "retrieval_source": "chunk_rpc_legacy_signature"})
-                        for row in (result.data or [])
-                    ]
-                except Exception as legacy_exc:
-                    log.warning("retriever.chunk_search.legacy_failed", error=str(legacy_exc))
-                    return []
+                log.warning(
+                    "retriever.chunk_search.tenant_param_unavailable",
+                    reason="p_tenant_id_not_available_in_database_function",
+                )
+                return []
 
             log.warning("retriever.chunk_search.failed", error=str(exc))
             return []
@@ -206,6 +199,7 @@ class Retriever:
         *,
         query: str,
         jurisdiction: str | None,
+        tenant_id: str | None,
         top_k: int,
     ) -> list[dict[str, Any]]:
         terms = self._rank_keyword_terms(self._keyword_terms(query))
@@ -219,38 +213,67 @@ class Retriever:
             if not safe_term:
                 continue
 
-            try:
-                request = (
-                    self._supabase.table("document_chunks")
-                    .select(
-                        "source_id, id, source_table, title, content, document_type, "
-                        "jurisdiction, status, review_status, metadata, section_ref"
+            for scope in self._keyword_tenant_scopes(tenant_id):
+                try:
+                    request = self._document_chunks_keyword_request(
+                        safe_term=safe_term,
+                        jurisdiction=jurisdiction,
+                        tenant_id=scope,
+                        top_k=top_k,
                     )
-                    .eq("status", "active")
-                    .eq("review_status", "approved")
-                    .or_(f"title.ilike.%{safe_term}%,content.ilike.%{safe_term}%,section_ref.ilike.%{safe_term}%")
-                    .limit(max(top_k, top_k * 2))
-                )
-                if jurisdiction:
-                    request = request.eq("jurisdiction", jurisdiction)
-                result = await request.execute()
-                for row in result.data or []:
-                    score = self._keyword_relevance_score(row, terms)
-                    if score <= 0:
-                        continue
-                    normalised = self._normalise_row({
-                        **row,
-                        "final_score": score,
-                        "retrieval_source": "direct_keyword",
-                    })
-                    key = str(normalised.get("chunk_id") or normalised.get("id"))
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    rows.append(normalised)
-            except Exception as exc:
-                log.debug("retriever.direct_keyword.term_failed", term=safe_term, error=str(exc))
+                    result = await request.execute()
+                    for row in result.data or []:
+                        score = self._keyword_relevance_score(row, terms)
+                        if score <= 0:
+                            continue
+                        normalised = self._normalise_row({
+                            **row,
+                            "final_score": score,
+                            "retrieval_source": "direct_keyword",
+                        })
+                        key = str(normalised.get("chunk_id") or normalised.get("id"))
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        rows.append(normalised)
+                except Exception as exc:
+                    log.debug(
+                        "retriever.direct_keyword.term_failed",
+                        term=safe_term,
+                        tenant_scope=scope or "public",
+                        error=str(exc),
+                    )
         return sorted(rows, key=self._row_score, reverse=True)[:top_k]
+
+    def _keyword_tenant_scopes(self, tenant_id: str | None) -> tuple[str | None, ...]:
+        if tenant_id:
+            return (tenant_id, None)
+        return (None,)
+
+    def _document_chunks_keyword_request(
+        self,
+        *,
+        safe_term: str,
+        jurisdiction: str | None,
+        tenant_id: str | None,
+        top_k: int,
+    ):
+        request = (
+            self._supabase.table("document_chunks")
+            .select(
+                "source_id, id, tenant_id, source_table, title, content, document_type, "
+                "jurisdiction, status, review_status, metadata, section_ref"
+            )
+            .eq("status", "active")
+            .eq("review_status", "approved")
+            .or_(f"title.ilike.%{safe_term}%,content.ilike.%{safe_term}%,section_ref.ilike.%{safe_term}%")
+            .limit(max(top_k, top_k * 2))
+        )
+        if jurisdiction:
+            request = request.eq("jurisdiction", jurisdiction)
+        if tenant_id:
+            return request.eq("tenant_id", tenant_id)
+        return request.is_("tenant_id", "null")
 
     def _keyword_terms(self, query: str) -> list[str]:
         lowered = query.casefold()

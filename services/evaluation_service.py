@@ -20,7 +20,7 @@ log = get_logger(__name__)
 class EvalCase:
     id: str
     question: str
-    jurisdiction: str = "LA"
+    jurisdiction: str = "laos"
     language: str = "lo"
     category: str = "general"
     expected_answer: str | None = None

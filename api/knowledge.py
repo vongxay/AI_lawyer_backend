@@ -24,7 +24,7 @@ AdminUser = Annotated[CurrentUser, Depends(get_admin_user)]
 class CreateKnowledgeDocument(BaseModel):
     title: str = Field(min_length=1, max_length=500)
     type: str = "statute"
-    jurisdiction: str = "TH"
+    jurisdiction: str = "laos"
     year: int | None = None
     fullText: str = Field(default="", max_length=500_000)
     tags: list[str] = Field(default_factory=list)
@@ -282,7 +282,7 @@ def _map_document(table: str, fallback_type: str, row: dict[str, Any]) -> dict[s
         "title": title,
         "type": fallback_type,
         "sourceTable": table,
-        "jurisdiction": _short_jurisdiction(str(row.get("jurisdiction") or "TH")),
+        "jurisdiction": _short_jurisdiction(str(row.get("jurisdiction") or "laos")),
         "year": year,
         "status": _ui_status(str(status)),
         "lastUpdated": row.get("updated_at") or row.get("created_at") or row.get("ingested_at") or "",

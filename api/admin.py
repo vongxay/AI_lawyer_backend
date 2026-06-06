@@ -40,7 +40,7 @@ AdminUser = Annotated[CurrentUser, Depends(get_admin_user)]
 class UrlIngestRequest(BaseModel):
     url: HttpUrl
     document_type: str = "statute"
-    jurisdiction: str = "LA"
+    jurisdiction: str = "laos"
     title: str | None = Field(default=None, max_length=500)
     year: int | None = None
     tags: list[str] = Field(default_factory=list)
@@ -82,7 +82,7 @@ async def upload_legal_documents(
     user: AdminUser,
     files: list[UploadFile] = File(...),
     document_type: str = Form(default="law"),
-    jurisdiction: str = Form(default="TH"),
+    jurisdiction: str = Form(default="laos"),
     title: str | None = Form(default=None),
     year: int | None = Form(default=None),
     tags: str = Form(default=""),

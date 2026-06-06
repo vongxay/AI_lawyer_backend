@@ -295,7 +295,7 @@ class DraftRequest(BaseModel):
         validation_alias=AliasChoices("document_type", "type"),
     )
     jurisdiction: str | None = None
-    language: Literal["TH", "EN", "LA"] = "TH"
+    language: Literal["TH", "EN", "LA"] = "LA"
 
 
 class VerifyCitationsRequest(BaseModel):
@@ -325,7 +325,7 @@ class FeedbackRequest(BaseModel):
 class IngestRequest(BaseModel):
     source: str = Field(min_length=1)
     document_type: Literal["law", "case", "form", "guideline"] = "law"
-    jurisdiction: str = "TH"
+    jurisdiction: str = "laos"
     content: str | None = None
     url: str | None = None
 
@@ -345,6 +345,7 @@ class LegalQueryResponse(BaseModel):
     query_mode: str | None = None
     response_style: str | None = None
     response_language: str | None = None
+    selected_model_id: str | None = None
     session_id: str | None = None
     citations: list[CitationItem] = Field(default_factory=list)
     citations_verified: bool = True
@@ -390,7 +391,7 @@ class CaseMemoryResponse(BaseModel):
     irac_history: list[dict[str, Any]] = Field(default_factory=list)
     timeline: list[dict[str, Any]] = Field(default_factory=list)
     facts_summary: str | None = None
-    jurisdiction: str = "TH"
+    jurisdiction: str = "laos"
     status: str = "active"
     irac_count: int = 0
     key_citations_count: int = 0
