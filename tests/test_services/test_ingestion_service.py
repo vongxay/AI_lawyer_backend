@@ -1,4 +1,5 @@
 from services.ingestion_service import (
+    extract_text_with_metadata,
     _looks_like_garbled_pdf_text,
     assess_lao_legal_text_quality,
     normalise_lao_legal_text,
@@ -74,3 +75,20 @@ def test_quality_prefers_clean_lao_legal_text() -> None:
     noisy = clean + (" Rowe tea HOV ao guoon was Ill +++ --- ................ " * 10)
 
     assert assess_lao_legal_text_quality(clean).score > assess_lao_legal_text_quality(noisy).score
+
+
+def test_extracts_utf16_lao_text_without_replacement_noise() -> None:
+    text = (
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 1 "
+        "\u0e81\u0ebb\u0e94\u0edd\u0eb2\u0e8d\u0e99\u0eb5\u0ec9\u0e81\u0eb3\u0e99\u0ebb\u0e94"
+    ) * 20
+
+    extracted = extract_text_with_metadata(
+        text.encode("utf-16"),
+        "text/plain",
+        "lao-law.txt",
+    )
+
+    assert "\ufffd" not in extracted.text
+    assert extracted.quality.language == "lo"
+    assert extracted.quality.score >= 0.78

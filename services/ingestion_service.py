@@ -62,6 +62,9 @@ class IngestionResult:
     review_status: str
     document_type: str
     jurisdiction: str
+    extraction_method: str | None = None
+    language: str | None = None
+    text_quality: dict[str, Any] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -147,6 +150,21 @@ class LegalDocumentIngestionService:
             warnings.append(
                 "Document text is very short; add the full legal text before relying on search or AI answers."
             )
+        if not item.allow_short_text and not extracted_text.quality.is_usable:
+            raise UnsupportedFileTypeError(
+                "Extracted text quality is too low for trusted Lao legal search.",
+                details={
+                    "file_name": item.filename,
+                    "content_type": item.content_type,
+                    "extraction_method": extracted_text.method,
+                    "text_quality": extracted_text.quality.to_metadata(),
+                    "warnings": extracted_text.warnings,
+                    "hint": (
+                        "Upload a Unicode text-searchable PDF/DOCX/TXT, or enable Tesseract OCR "
+                        "with Lao language data for scanned PDFs."
+                    ),
+                },
+            )
         if extracted_text.quality.needs_review:
             warnings.append(
                 "Extracted text quality is below the preferred threshold; review the indexed chunks before approval."
@@ -181,6 +199,9 @@ class LegalDocumentIngestionService:
                 review_status=item.review_status,
                 document_type=item.document_type,
                 jurisdiction=_short_jurisdiction(item.jurisdiction),
+                extraction_method=extracted_text.method,
+                language=extracted_text.quality.language,
+                text_quality=extracted_text.quality.to_metadata(),
                 warnings=warnings,
             )
 
@@ -228,6 +249,9 @@ class LegalDocumentIngestionService:
             review_status=item.review_status,
             document_type=item.document_type,
             jurisdiction=_short_jurisdiction(item.jurisdiction),
+            extraction_method=extracted_text.method,
+            language=extracted_text.quality.language,
+            text_quality=extracted_text.quality.to_metadata(),
             warnings=[*warnings, *embedding["warnings"], *chunk_embedding["warnings"], *chunk_index_warnings],
         )
 
@@ -424,13 +448,14 @@ def extract_text_with_metadata(content: bytes, content_type: str, filename: str)
     lower_name = filename.lower()
 
     if content_type in {"text/plain", "text/markdown"} or lower_name.endswith((".txt", ".md")):
-        text = normalise_lao_legal_text(content.decode("utf-8", errors="replace"))
+        raw_text, decode_warnings = _decode_text_bytes(content)
+        text = normalise_lao_legal_text(raw_text)
         quality = assess_lao_legal_text_quality(text)
         return ExtractedLegalText(
             text=text,
             method="plain_text",
             quality=quality,
-            warnings=_quality_warnings(quality),
+            warnings=[*decode_warnings, *_quality_warnings(quality)],
         )
 
     if content_type == "application/pdf" or lower_name.endswith(".pdf"):
@@ -450,13 +475,18 @@ def extract_text_with_metadata(content: bytes, content_type: str, filename: str)
         )
 
     if content_type == "application/msword" or lower_name.endswith(".doc"):
-        text = normalise_lao_legal_text(content.decode("utf-8", errors="replace"))
+        raw_text, decode_warnings = _decode_text_bytes(content)
+        text = normalise_lao_legal_text(raw_text)
         quality = assess_lao_legal_text_quality(text)
         return ExtractedLegalText(
             text=text,
             method="legacy_doc_text_decode",
             quality=quality,
-            warnings=_quality_warnings(quality),
+            warnings=[
+                "Legacy .doc extraction is best-effort; upload DOCX, Unicode TXT, or searchable PDF when possible.",
+                *decode_warnings,
+                *_quality_warnings(quality),
+            ],
         )
 
     raise UnsupportedFileTypeError(f"Unsupported legal document type '{content_type}'.")
@@ -508,7 +538,7 @@ class _ExtractionCandidate:
 
 
 def normalise_lao_legal_text(text: str, *, source: str | None = None) -> str:
-    normalized = unicodedata.normalize("NFKC", text or "")
+    normalized = unicodedata.normalize("NFC", text or "")
     normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
     normalized = re.sub(r"[\u200b-\u200f\ufeff]", "", normalized)
     normalized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", " ", normalized)
@@ -518,6 +548,35 @@ def normalise_lao_legal_text(text: str, *, source: str | None = None) -> str:
     normalized = re.sub(r"\n[ \t]+", "\n", normalized)
     normalized = re.sub(r"\n{3,}", "\n\n", normalized)
     return normalized.strip()
+
+
+def _decode_text_bytes(content: bytes) -> tuple[str, list[str]]:
+    if content.startswith(b"\xef\xbb\xbf"):
+        return content.decode("utf-8-sig", errors="replace"), []
+    if content.startswith(b"\xff\xfe") or content.startswith(b"\xfe\xff"):
+        return content.decode("utf-16", errors="replace"), []
+
+    try:
+        text = content.decode("utf-8")
+        quality = assess_lao_legal_text_quality(text)
+        if quality.mojibake_ratio <= 0.01:
+            return text, []
+    except UnicodeDecodeError:
+        pass
+
+    null_ratio = content.count(b"\x00") / max(1, len(content))
+    if null_ratio > 0.05:
+        for encoding in ("utf-16-le", "utf-16-be", "utf-16"):
+            try:
+                text = content.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+            quality = assess_lao_legal_text_quality(text)
+            if quality.mojibake_ratio <= 0.01 and quality.char_count >= 20:
+                return text, [f"Decoded text as {encoding}; verify original file encoding."]
+
+    text = content.decode("utf-8", errors="replace")
+    return text, ["Text encoding could not be detected cleanly; decoded as UTF-8 with replacement characters."]
 
 
 def _drop_pdf_artifact_lines(text: str) -> str:
@@ -1167,6 +1226,7 @@ def _build_insert_payloads(
     if source_table == "cases":
         return [
             {
+                "tenant_id": item.tenant_id,
                 "case_no": title,
                 "court": "Unknown",
                 "jurisdiction": _db_jurisdiction(item.jurisdiction),
@@ -1185,6 +1245,7 @@ def _build_insert_payloads(
                 "ingested_by": item.user_id,
             },
             {
+                "tenant_id": item.tenant_id,
                 "case_no": title,
                 "court": "Unknown",
                 "year": item.year or 0,
@@ -1204,6 +1265,7 @@ def _build_insert_payloads(
     if source_table == "legal_forms":
         return [
             {
+                "tenant_id": item.tenant_id,
                 "title": title,
                 "form_type": "general",
                 "jurisdiction": _db_jurisdiction(item.jurisdiction),
@@ -1216,6 +1278,7 @@ def _build_insert_payloads(
                 "is_active": item.review_status == "approved",
             },
             {
+                "tenant_id": item.tenant_id,
                 "title": title,
                 "form_type": "general",
                 "jurisdiction": _short_jurisdiction(item.jurisdiction),
@@ -1231,6 +1294,7 @@ def _build_insert_payloads(
 
     return [
         {
+            "tenant_id": item.tenant_id,
             "title": title,
             "doc_type": "regulation" if item.document_type == "regulation" else "statute",
             "jurisdiction": _db_jurisdiction(item.jurisdiction),
@@ -1253,6 +1317,7 @@ def _build_insert_payloads(
             "ingested_by": item.user_id,
         },
         {
+            "tenant_id": item.tenant_id,
             "title": title,
             "jurisdiction": _short_jurisdiction(item.jurisdiction),
             "year": item.year,
