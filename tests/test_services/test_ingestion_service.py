@@ -1,6 +1,9 @@
 from services.ingestion_service import (
+    chunk_legal_text,
     extract_text_with_metadata,
+    _is_official_lao_source,
     _looks_like_garbled_pdf_text,
+    _source_authority,
     assess_lao_legal_text_quality,
     normalise_lao_legal_text,
 )
@@ -66,6 +69,42 @@ def test_normalises_pdf_artifact_lines() -> None:
     assert "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 1. \u0e88\u0eb8\u0e94\u0e9b\u0eb0\u0eaa\u0ebb\u0e87" in cleaned
 
 
+def test_chunking_preserves_lao_legal_sections_and_paragraphs() -> None:
+    article_1 = "\n".join([
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 1",
+        "\u0e88\u0eb8\u0e94\u0e9b\u0eb0\u0eaa\u0ebb\u0e87",
+        "\u0e81\u0ebb\u0e94\u0edd\u0eb2\u0e8d\u0e99\u0eb5\u0ec9\u0e81\u0eb3\u0e99\u0ebb\u0e94"
+        "\u0eab\u0ebc\u0eb1\u0e81\u0e81\u0eb2\u0e99 \u0ec1\u0ea5\u0eb0 "
+        "\u0ea7\u0eb4\u0e97\u0eb5\u0e81\u0eb2\u0e99\u0e9b\u0eb0\u0e95\u0eb4\u0e9a\u0eb1\u0e94.",
+    ])
+    article_2 = "\n".join([
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 2",
+        "\u0e82\u0ead\u0e9a\u0ec0\u0e82\u0e94\u0e81\u0eb2\u0e99\u0e9a\u0eb1\u0e87\u0e84\u0eb1\u0e9a\u0ec3\u0e8a\u0ec9",
+    ])
+
+    chunks = chunk_legal_text(f"{article_1}\n\n{article_2}", max_chars=320, overlap=60)
+
+    assert chunks[0].section_ref == "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 1"
+    assert chunks[0].content.startswith("\u0ea1\u0eb2\u0e94\u0e95\u0eb2 1\n\n")
+    assert "\n\n" in chunks[0].content
+    assert any(chunk.section_ref == "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 2" for chunk in chunks)
+
+
+def test_chunking_keeps_heading_with_long_lao_article_body() -> None:
+    heading = "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 7"
+    body = (
+        "\u0e9a\u0eb8\u0e81\u0e84\u0ebb\u0e99 \u0ec1\u0ea5\u0eb0 "
+        "\u0e81\u0eb2\u0e99\u0e88\u0eb1\u0e94\u0e95\u0eb1\u0ec9\u0e87 "
+        "\u0e95\u0ec9\u0ead\u0e87\u0e9b\u0eb0\u0e95\u0eb4\u0e9a\u0eb1\u0e94"
+    ) * 20
+
+    chunks = chunk_legal_text(f"{heading}\n{body}", max_chars=240, overlap=40)
+
+    assert chunks[0].content.startswith(f"{heading}\n\n")
+    assert chunks[0].content != heading
+    assert all(chunk.content != heading for chunk in chunks)
+
+
 def test_quality_prefers_clean_lao_legal_text() -> None:
     clean = (
         "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 61 "
@@ -92,3 +131,10 @@ def test_extracts_utf16_lao_text_without_replacement_noise() -> None:
     assert "\ufffd" not in extracted.text
     assert extracted.quality.language == "lo"
     assert extracted.quality.score >= 0.78
+
+
+def test_treats_lao_national_assembly_as_official_source() -> None:
+    source_url = "https://na.gov.la/wp-content/uploads/2026/01/law.pdf"
+
+    assert _is_official_lao_source(source_url) is True
+    assert _source_authority(source_url) == "lao_national_assembly"

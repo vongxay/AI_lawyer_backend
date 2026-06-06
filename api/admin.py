@@ -36,10 +36,20 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 log = get_logger(__name__)
 AdminUser = Annotated[CurrentUser, Depends(get_admin_user)]
 
+LAO_LAW_CATEGORY_IDS = {
+    "constitution_justice",
+    "state_security",
+    "economy",
+    "social_culture",
+    "foreign_affairs",
+}
+DEFAULT_LAO_LAW_CATEGORY = "constitution_justice"
+
 
 class UrlIngestRequest(BaseModel):
     url: HttpUrl
     document_type: str = "statute"
+    law_category: str = DEFAULT_LAO_LAW_CATEGORY
     jurisdiction: str = "laos"
     title: str | None = Field(default=None, max_length=500)
     year: int | None = None
@@ -82,6 +92,7 @@ async def upload_legal_documents(
     user: AdminUser,
     files: list[UploadFile] = File(...),
     document_type: str = Form(default="law"),
+    law_category: str = Form(default=DEFAULT_LAO_LAW_CATEGORY),
     jurisdiction: str = Form(default="laos"),
     title: str | None = Form(default=None),
     year: int | None = Form(default=None),
@@ -92,6 +103,7 @@ async def upload_legal_documents(
     supabase = await get_supabase()
     service = LegalDocumentIngestionService(supabase=supabase)
     parsed_tags = [tag.strip() for tag in tags.split(",") if tag.strip()]
+    normalized_law_category = _validate_law_category(law_category)
 
     results = []
     for upload in files:
@@ -109,6 +121,7 @@ async def upload_legal_documents(
                     content_type=upload.content_type or "application/octet-stream",
                     content=content,
                     document_type=document_type,
+                    law_category=normalized_law_category,
                     jurisdiction=jurisdiction,
                     title=title if len(files) == 1 else None,
                     year=year,
@@ -126,6 +139,7 @@ async def upload_legal_documents(
                 file_name=upload.filename or "unnamed",
                 content_type=upload.content_type or "application/octet-stream",
                 document_type=document_type,
+                law_category=normalized_law_category,
                 jurisdiction=jurisdiction,
                 title=title if len(files) == 1 else None,
             )
@@ -146,6 +160,7 @@ async def upload_legal_documents(
             source_url=source_url,
             config={
                 "document_type": document_type,
+                "law_category": normalized_law_category,
                 "jurisdiction": jurisdiction,
                 "title": title,
                 "year": year,
@@ -183,6 +198,7 @@ async def ingest_legal_document_url(
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"}:
         raise UnsupportedFileTypeError("Only http/https URLs are supported.")
+    normalized_law_category = _validate_law_category(payload.law_category)
 
     timeout = httpx.Timeout(20.0, connect=5.0)
     supabase = await get_supabase()
@@ -227,6 +243,7 @@ async def ingest_legal_document_url(
                         url=link["url"],
                         source_page_url=url,
                         document_type=payload.document_type,
+                        law_category=normalized_law_category,
                         jurisdiction=payload.jurisdiction,
                         title=payload.title if len(document_links) == 1 else None,
                         year=payload.year,
@@ -239,6 +256,7 @@ async def ingest_legal_document_url(
                         exc=exc,
                         url=link["url"],
                         document_type=payload.document_type,
+                        law_category=normalized_law_category,
                         jurisdiction=payload.jurisdiction,
                         title=link.get("title"),
                     )
@@ -261,6 +279,7 @@ async def ingest_legal_document_url(
             url=url,
             source_page_url=None,
             document_type=payload.document_type,
+            law_category=normalized_law_category,
             jurisdiction=payload.jurisdiction,
             title=payload.title,
             year=payload.year,
@@ -288,6 +307,7 @@ async def _ingest_remote_document(
     url: str,
     source_page_url: str | None,
     document_type: str,
+    law_category: str,
     jurisdiction: str,
     title: str | None,
     year: int | None,
@@ -326,6 +346,7 @@ async def _ingest_remote_document(
                 content_type=content_type,
                 content=content,
                 document_type=document_type,
+                law_category=law_category,
                 jurisdiction=jurisdiction,
                 title=title,
                 year=year,
@@ -343,6 +364,7 @@ async def _ingest_remote_document(
             file_name=filename,
             content_type=content_type,
             document_type=document_type,
+            law_category=law_category,
             jurisdiction=jurisdiction,
             title=title,
         )
@@ -364,6 +386,7 @@ async def _ingest_remote_document(
         source_url=final_url,
         config={
             "document_type": document_type,
+            "law_category": law_category,
             "jurisdiction": jurisdiction,
             "title": title,
             "year": year,
@@ -409,7 +432,7 @@ async def list_ingestion_jobs(
         if user.tenant_id:
             query = query.eq("tenant_id", user.tenant_id)
         result = await query.execute()
-        return result.data or []
+        return await _normalise_ingestion_jobs_with_knowledge_state(supabase, result.data or [])
     except Exception as exc:
         log.warning("admin.ingestion_jobs.failed", error=str(exc))
         return await _synthesise_ingestion_jobs(supabase, limit=limit)
@@ -431,7 +454,76 @@ async def delete_ingestion_job(job_id: str, user: AdminUser) -> dict:
     except Exception as exc:
         log.warning("admin.delete_ingestion_job.failed", error=str(exc))
 
+    if await _hide_synthesised_ingestion_job(supabase, job_id=job_id, user=user):
+        return {"status": "hidden", "id": job_id}
+
     return {"status": "not_found", "id": job_id}
+
+
+async def _normalise_ingestion_jobs_with_knowledge_state(
+    supabase: Any,
+    jobs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    normalised: list[dict[str, Any]] = []
+    valid_tables = {"laws", "cases", "legal_forms"}
+
+    for job in jobs:
+        item = dict(job)
+        result = dict(item.get("result") or {}) if isinstance(item.get("result"), dict) else {}
+        config = dict(item.get("config") or {}) if isinstance(item.get("config"), dict) else {}
+        document_id = result.get("document_id")
+        source_table = result.get("source_table") or config.get("source_table")
+        if not document_id or source_table not in valid_tables:
+            normalised.append(item)
+            continue
+
+        try:
+            select_fields = "id, status, review_status, updated_at"
+            if source_table == "legal_forms":
+                select_fields = "id, is_active, review_status, updated_at"
+            row_result = (
+                await supabase.table(str(source_table))
+                .select(select_fields)
+                .eq("id", document_id)
+                .limit(1)
+                .execute()
+            )
+            row = (row_result.data or [None])[0]
+        except Exception as exc:
+            log.warning("admin.normalise_ingestion_job.failed", table=source_table, error=str(exc))
+            normalised.append(item)
+            continue
+
+        if not row:
+            normalised.append(item)
+            continue
+
+        review_status = row.get("review_status") or result.get("review_status")
+        result["review_status"] = review_status
+        config["review_status"] = review_status
+
+        if review_status == "approved":
+            item["status"] = "completed"
+            item["progress"] = 100
+            result["status"] = "indexed"
+        elif review_status == "rejected":
+            item["status"] = "rejected"
+            item["progress"] = 100
+            result["status"] = "rejected"
+            result.setdefault("error", "Rejected during knowledge review")
+        elif review_status == "pending_review":
+            item["status"] = "pending_review"
+            try:
+                current_progress = int(item.get("progress") or 90)
+            except (TypeError, ValueError):
+                current_progress = 90
+            item["progress"] = min(current_progress, 90)
+
+        item["result"] = result
+        item["config"] = config
+        normalised.append(item)
+
+    return normalised
 
 
 @router.get("/rag/health", summary="Inspect chunk-level RAG readiness")
@@ -734,6 +826,67 @@ def _normalise_audit_log(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _hide_synthesised_ingestion_job(
+    supabase: Any,
+    *,
+    job_id: str,
+    user: CurrentUser,
+) -> bool:
+    hidden_at = datetime.now(timezone.utc).isoformat()
+    for table in ("laws", "cases", "legal_forms"):
+        row = await _fetch_knowledge_row_for_history_hide(supabase, table=table, job_id=job_id, user=user)
+        if not row:
+            continue
+
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        next_metadata = {
+            **metadata,
+            "hidden_from_ingestion_history": True,
+            "hidden_from_ingestion_history_at": hidden_at,
+            "hidden_from_ingestion_history_by": user.sub,
+        }
+        try:
+            result = await (
+                supabase.table(table)
+                .update({"metadata": next_metadata})
+                .eq("id", job_id)
+                .execute()
+            )
+            if result.data is not None:
+                log.info("admin.hide_synthesised_ingestion_job.ok", table=table, job_id=job_id)
+                return True
+        except Exception as exc:
+            log.warning("admin.hide_synthesised_ingestion_job.failed", table=table, error=str(exc))
+    return False
+
+
+async def _fetch_knowledge_row_for_history_hide(
+    supabase: Any,
+    *,
+    table: str,
+    job_id: str,
+    user: CurrentUser,
+) -> dict[str, Any] | None:
+    select_attempts = (
+        "id, tenant_id, metadata",
+        "id, metadata",
+    )
+    for columns in select_attempts:
+        try:
+            query = supabase.table(table).select(columns).eq("id", job_id).limit(1)
+            if user.tenant_id and "tenant_id" in columns:
+                query = query.eq("tenant_id", user.tenant_id)
+            result = await query.execute()
+            rows = result.data or []
+            if isinstance(rows, list) and rows:
+                return rows[0]
+            if isinstance(rows, dict):
+                return rows
+        except Exception as exc:
+            log.warning("admin.fetch_history_hide_candidate.failed", table=table, columns=columns, error=str(exc))
+    return None
+
+
 async def _record_ingestion_job(
     *,
     supabase: Any | None,
@@ -857,6 +1010,7 @@ def _failed_remote_document_result(
     exc: Exception,
     url: str,
     document_type: str,
+    law_category: str,
     jurisdiction: str,
     title: str | None,
 ) -> dict[str, Any]:
@@ -875,6 +1029,7 @@ def _failed_remote_document_result(
         "embedding_model": None,
         "review_status": "failed",
         "document_type": document_type,
+        "law_category": law_category,
         "jurisdiction": jurisdiction,
         "warnings": [f"Could not ingest remote document from {url}."],
         "error": message,
@@ -891,6 +1046,7 @@ def _failed_upload_result(
     file_name: str,
     content_type: str,
     document_type: str,
+    law_category: str,
     jurisdiction: str,
     title: str | None,
 ) -> dict[str, Any]:
@@ -907,6 +1063,7 @@ def _failed_upload_result(
         "embedding_model": None,
         "review_status": "failed",
         "document_type": document_type,
+        "law_category": law_category,
         "jurisdiction": jurisdiction,
         "warnings": [_upload_failure_hint(exc, content_type=content_type)],
         "error": exc.message,
@@ -932,6 +1089,19 @@ def _source_table_for_document_type(document_type: str) -> str:
     return "laws"
 
 
+def _validate_law_category(value: str | None) -> str:
+    normalized = (value or DEFAULT_LAO_LAW_CATEGORY).strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized not in LAO_LAW_CATEGORY_IDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": "Unsupported Lao law category.",
+                "allowed": sorted(LAO_LAW_CATEGORY_IDS),
+            },
+        )
+    return normalized
+
+
 def _title_from_filename(filename: str) -> str:
     stem = filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
     return re.sub(r"\.[^.]+$", "", stem).replace("_", " ").replace("-", " ").strip() or filename
@@ -954,6 +1124,8 @@ async def _synthesise_ingestion_jobs(supabase: Any, *, limit: int) -> list[dict[
 
         for row in result.data or []:
             metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            if metadata.get("hidden_from_ingestion_history") is True:
+                continue
             title = row.get("title") or row.get("case_no") or metadata.get("file_name") or "Untitled"
             created_at = row.get("ingested_at") or row.get("created_at") or row.get("updated_at")
             review_status = row.get("review_status") or metadata.get("review_status") or "approved"
@@ -974,6 +1146,7 @@ async def _synthesise_ingestion_jobs(supabase: Any, *, limit: int) -> list[dict[
                 "errors": [],
                 "config": {
                     "document_type": document_type,
+                    "law_category": row.get("law_category") or metadata.get("law_category"),
                     "jurisdiction": row.get("jurisdiction"),
                     "source_table": table,
                 },
@@ -987,6 +1160,7 @@ async def _synthesise_ingestion_jobs(supabase: Any, *, limit: int) -> list[dict[
                     "text_length": metadata.get("text_length") or len(text),
                     "embedding_model": metadata.get("embedding_model"),
                     "document_type": document_type,
+                    "law_category": row.get("law_category") or metadata.get("law_category"),
                     "jurisdiction": row.get("jurisdiction"),
                 },
                 "created_by": row.get("ingested_by"),

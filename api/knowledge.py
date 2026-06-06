@@ -24,6 +24,7 @@ AdminUser = Annotated[CurrentUser, Depends(get_admin_user)]
 class CreateKnowledgeDocument(BaseModel):
     title: str = Field(min_length=1, max_length=500)
     type: str = "statute"
+    lawCategory: str | None = None
     jurisdiction: str = "laos"
     year: int | None = None
     fullText: str = Field(default="", max_length=500_000)
@@ -32,6 +33,7 @@ class CreateKnowledgeDocument(BaseModel):
 
 class UpdateKnowledgeDocument(BaseModel):
     title: str | None = None
+    lawCategory: str | None = None
     jurisdiction: str | None = None
     year: int | None = None
     status: str | None = None
@@ -43,6 +45,7 @@ class UpdateKnowledgeDocument(BaseModel):
 class ReviewDecision(BaseModel):
     action: str = Field(pattern="^(approve|reject)$")
     notes: str | None = Field(default=None, max_length=2000)
+    jobId: str | None = None
 
 
 @router.get("/documents", summary="List legal knowledge documents")
@@ -115,6 +118,7 @@ async def create_document(
             content_type="text/plain",
             content=(payload.fullText or payload.title).encode("utf-8"),
             document_type=payload.type,
+            law_category=payload.lawCategory,
             jurisdiction=payload.jurisdiction,
             title=payload.title,
             year=payload.year,
@@ -204,6 +208,16 @@ async def review_document(
             )
             if result.data:
                 await _update_document_chunks(supabase, table, document_id, updates)
+                await _sync_ingestion_job_review_status(
+                    supabase,
+                    document_id=document_id,
+                    source_table=table,
+                    review_status=review_status,
+                    reviewed_at=reviewed_at,
+                    notes=payload.notes,
+                    job_id=payload.jobId,
+                    user=user,
+                )
                 return {"status": review_status, "id": document_id, "source_table": table}
         except Exception as exc:
             log.warning("knowledge.review_table.failed", table=table, error=str(exc))
@@ -230,6 +244,8 @@ async def _update_document_chunks(
         updates["title"] = source_updates["case_no"]
     if "jurisdiction" in source_updates:
         updates["jurisdiction"] = str(source_updates["jurisdiction"])
+    if "law_category" in source_updates:
+        updates["law_category"] = str(source_updates["law_category"])
 
     if not updates:
         return
@@ -244,6 +260,98 @@ async def _update_document_chunks(
         )
     except Exception as exc:
         log.warning("knowledge.update_chunks.failed", source_table=source_table, error=str(exc))
+
+
+async def _sync_ingestion_job_review_status(
+    supabase: Any,
+    *,
+    document_id: str,
+    source_table: str,
+    review_status: str,
+    reviewed_at: str,
+    notes: str | None,
+    job_id: str | None,
+    user: CurrentUser,
+) -> None:
+    """Keep admin ingestion history in step with knowledge review decisions."""
+    try:
+        query = (
+            supabase.table("ingestion_jobs")
+            .select("id, tenant_id, status, progress, config, result, errors")
+            .limit(500)
+        )
+        if user.tenant_id:
+            query = query.or_(f"tenant_id.is.null,tenant_id.eq.{user.tenant_id}")
+        rows_result = await query.execute()
+    except Exception as exc:
+        log.warning("knowledge.review_ingestion_jobs.select_failed", error=str(exc))
+        return
+
+    rows = rows_result.data or []
+    matched = 0
+    for row in rows:
+        current_result = row.get("result") if isinstance(row.get("result"), dict) else {}
+        current_config = row.get("config") if isinstance(row.get("config"), dict) else {}
+        result_document_id = str(current_result.get("document_id") or "")
+        result_source_table = str(current_result.get("source_table") or current_config.get("source_table") or "")
+        row_id = str(row.get("id") or "")
+        if not row_id:
+            continue
+
+        if job_id:
+            is_match = row_id == job_id or result_document_id == document_id
+        else:
+            is_match = result_document_id == document_id
+        if not is_match:
+            continue
+        if result_source_table and result_source_table != source_table:
+            continue
+
+        next_result = {
+            **current_result,
+            "document_id": document_id,
+            "source_table": source_table,
+            "review_status": review_status,
+            "reviewed_at": reviewed_at,
+            "reviewed_by": user.sub,
+        }
+        if notes:
+            next_result["review_notes"] = notes
+
+        next_config = {
+            **current_config,
+            "review_status": review_status,
+        }
+
+        if review_status == "approved":
+            next_job_status = "completed"
+            next_result["status"] = "indexed"
+            errors = row.get("errors") or []
+        else:
+            next_job_status = "rejected"
+            next_result["status"] = "rejected"
+            next_result.setdefault("error", "Rejected during knowledge review")
+            errors = row.get("errors") or []
+
+        updates = {
+            "status": next_job_status,
+            "progress": 100,
+            "config": next_config,
+            "result": next_result,
+            "errors": errors,
+            "updated_at": reviewed_at,
+            "completed_at": reviewed_at,
+        }
+
+        try:
+            result = await supabase.table("ingestion_jobs").update(updates).eq("id", row_id).execute()
+            if result.data is not None:
+                matched += 1
+        except Exception as exc:
+            log.warning("knowledge.review_ingestion_jobs.update_failed", job_id=row_id, error=str(exc))
+
+    if matched == 0:
+        log.info("knowledge.review_ingestion_jobs.no_match", document_id=document_id, source_table=source_table)
 
 
 async def _delete_document_chunks(supabase: Any, source_table: str, document_id: str) -> None:
@@ -282,6 +390,7 @@ def _map_document(table: str, fallback_type: str, row: dict[str, Any]) -> dict[s
         "title": title,
         "type": fallback_type,
         "sourceTable": table,
+        "lawCategory": row.get("law_category") or (row.get("metadata") or {}).get("law_category"),
         "jurisdiction": _short_jurisdiction(str(row.get("jurisdiction") or "laos")),
         "year": year,
         "status": _ui_status(str(status)),
@@ -305,6 +414,8 @@ def _map_update(table: str, updates: dict[str, Any]) -> dict[str, Any]:
         mapped["case_no" if table == "cases" else "title"] = updates["title"]
     if "jurisdiction" in updates:
         mapped["jurisdiction"] = _db_jurisdiction(str(updates["jurisdiction"]))
+    if "lawCategory" in updates:
+        mapped["law_category"] = updates["lawCategory"]
     if "year" in updates:
         mapped["year_be" if table != "legal_forms" else "version"] = updates["year"]
     if "tags" in updates and table != "legal_forms":

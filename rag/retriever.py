@@ -676,6 +676,7 @@ class Retriever:
             "source_url": source_url,
             "official_source_url": row.get("official_source_url") or metadata.get("official_source_url"),
             "source_authority": row.get("source_authority") or metadata.get("source_authority"),
+            "law_category": row.get("law_category") or metadata.get("law_category"),
         }
 
     def _is_statute_like(self, row: dict[str, Any]) -> bool:

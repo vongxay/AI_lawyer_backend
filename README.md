@@ -89,11 +89,14 @@ To enable chunk-level retrieval in Supabase, apply:
 
 ```sql
 -- Supabase SQL Editor
+\i supabase_admin_ingestion_jobs.sql
+\i supabase_lao_legal_metadata.sql
 \i supabase_agentic_rag_chunks.sql
+\i supabase_lao_law_categories.sql
 ```
 
 If your SQL editor does not support `\i`, open
-`supabase_agentic_rag_chunks.sql` and run its contents after the base schema.
+the SQL files above and run them in that order after the base schema.
 
 Useful admin endpoints:
 

@@ -155,7 +155,8 @@ async def get_security_overview(user: AdminUser) -> dict[str, Any]:
     settings = get_settings()
     supabase = await get_supabase()
     rows = await _fetch_audit_rows(supabase, user=user, limit=1000)
-    events = _security_events(rows)
+    persisted_events = await _security_events_from_table(supabase, user=user) if supabase else []
+    events = persisted_events + _security_events(rows)
     unresolved = len([event for event in events if not event["resolved"]])
     high_risk = len([event for event in events if event["severity"] in {"critical", "high"} and not event["resolved"]])
     score = max(0, 100 - high_risk * 10 - unresolved * 2)
@@ -178,6 +179,22 @@ async def get_security_overview(user: AdminUser) -> dict[str, Any]:
     }
 
 
+@router.patch("/ops/security/events/{event_id}/resolve", summary="Resolve a persisted security event")
+async def resolve_security_event(event_id: str, user: AdminUser) -> dict[str, Any]:
+    supabase = await _require_supabase()
+    row = await _update_row(
+        supabase,
+        "security_events",
+        event_id,
+        {"is_resolved": True, "resolved_by": user.sub, "resolved_at": _now()},
+        tenant_id=user.tenant_id,
+        tenant_optional=True,
+    )
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Security event not found.")
+    return _normalise_security_event_row(row)
+
+
 @router.get("/ops/notifications", summary="Get operational admin notifications")
 async def get_notifications(user: AdminUser) -> dict[str, Any]:
     settings = get_settings()
@@ -185,7 +202,8 @@ async def get_notifications(user: AdminUser) -> dict[str, Any]:
     audit_rows = await _fetch_audit_rows(supabase, user=user, limit=500)
     expert_rows = await _select_rows(supabase, "expert_reviews", limit=100, tenant_id=user.tenant_id) if supabase else []
     rag_health = await _rag_health_snapshot(supabase, tenant_id=user.tenant_id) if supabase else {}
-    notifications = _build_notifications(settings, audit_rows, expert_rows, rag_health)
+    persisted = await _notification_rows(supabase, user=user) if supabase else []
+    notifications = persisted + _build_notifications(settings, audit_rows, expert_rows, rag_health)
     return {
         "items": notifications,
         "settings": {
@@ -197,6 +215,51 @@ async def get_notifications(user: AdminUser) -> dict[str, Any]:
             "slack": False,
         },
     }
+
+
+@router.patch("/ops/notifications/{notification_id}/read", summary="Mark an admin notification as read")
+async def mark_notification_read(notification_id: str, user: AdminUser) -> dict[str, Any]:
+    supabase = await _require_supabase()
+    row = await _update_row(supabase, "notifications", notification_id, {"is_read": True}, tenant_id=user.tenant_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found.")
+    return _normalise_notification_row(row)
+
+
+@router.patch("/ops/notifications/read-all", summary="Mark visible admin notifications as read")
+async def mark_all_notifications_read(user: AdminUser) -> dict[str, int]:
+    supabase = await _require_supabase()
+    if not user.tenant_id:
+        return {"count": 0}
+    rows = await _notification_table_rows(supabase, user=user, limit=500)
+    count = 0
+    for row in rows:
+        updated = await _update_row(supabase, "notifications", str(row.get("id")), {"is_read": True}, tenant_id=user.tenant_id)
+        if updated:
+            count += 1
+    return {"count": count}
+
+
+@router.delete("/ops/notifications/{notification_id}", summary="Delete an admin notification")
+async def delete_notification(notification_id: str, user: AdminUser) -> dict[str, str]:
+    supabase = await _require_supabase()
+    deleted = await _delete_row(supabase, "notifications", notification_id, tenant_id=user.tenant_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found.")
+    return {"status": "deleted", "id": notification_id}
+
+
+@router.delete("/ops/notifications", summary="Delete visible admin notifications")
+async def clear_notifications(user: AdminUser) -> dict[str, int]:
+    supabase = await _require_supabase()
+    if not user.tenant_id:
+        return {"count": 0}
+    rows = await _notification_table_rows(supabase, user=user, limit=500)
+    count = 0
+    for row in rows:
+        if await _delete_row(supabase, "notifications", str(row.get("id")), tenant_id=user.tenant_id):
+            count += 1
+    return {"count": count}
 
 
 @router.get("/ops/roles", summary="Get role definitions and assigned user counts")
@@ -245,8 +308,9 @@ async def run_ops_action(action: str, user: AdminUser) -> dict[str, Any]:
 async def get_pii_overview(user: AdminUser) -> dict[str, Any]:
     supabase = await get_supabase()
     rows = await _fetch_audit_rows(supabase, user=user, limit=1000)
-    records = _pii_records(rows)
-    rules = _pii_rules(records)
+    persisted_records = await _pii_records_from_table(supabase, user=user) if supabase else []
+    records = persisted_records or _pii_records(rows)
+    rules = await _pii_rules_from_table(supabase, user=user, records=records) if supabase else _pii_rules(records)
     return {
         "records": records,
         "rules": rules,
@@ -259,6 +323,54 @@ async def get_pii_overview(user: AdminUser) -> dict[str, Any]:
             "compliance": 98.2 if records else 100,
         },
     }
+
+
+@router.patch("/ops/pii/detections/{detection_id}", summary="Resolve a PII detection")
+async def update_pii_detection(detection_id: str, payload: dict[str, Any], user: AdminUser) -> dict[str, Any]:
+    supabase = await _require_supabase()
+    action = str(payload.get("action") or payload.get("status") or "").strip().lower()
+    if action not in {"masked", "deleted", "retained"}:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="action must be masked, deleted, or retained.")
+
+    updates = {
+        "status": action,
+        "action_taken": _pii_action_label(action),
+        "resolved_by": user.sub,
+        "resolved_at": _now(),
+    }
+    row = await _update_row(supabase, "pii_detections", detection_id, updates, tenant_id=user.tenant_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PII detection not found.")
+    return _normalise_pii_detection_row(row)
+
+
+@router.post("/ops/pii/rules", summary="Create a PII detection rule")
+async def create_pii_rule(payload: dict[str, Any], user: AdminUser) -> dict[str, Any]:
+    supabase = await _require_supabase()
+    tenant_id = payload.get("tenant_id") or user.tenant_id
+    if not tenant_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="tenant_id is required.")
+    row = await _insert_row(supabase, "pii_rules", _pii_rule_payload(payload, tenant_id=str(tenant_id)))
+    if not row:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="PII rule could not be created.")
+    return _normalise_pii_rule_row(row, records=[])
+
+
+@router.patch("/ops/pii/rules/{rule_id}", summary="Update a PII detection rule")
+async def update_pii_rule(rule_id: str, payload: dict[str, Any], user: AdminUser) -> dict[str, Any]:
+    supabase = await _require_supabase()
+    row = await _update_row(
+        supabase,
+        "pii_rules",
+        rule_id,
+        _pii_rule_payload(payload, tenant_id=user.tenant_id, partial=True),
+        tenant_id=user.tenant_id,
+        tenant_optional=True,
+    )
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PII rule not found.")
+    records = await _pii_records_from_table(supabase, user=user)
+    return _normalise_pii_rule_row(row, records=records)
 
 
 @router.get("/prompt-versions", summary="List prompt versions")
@@ -490,6 +602,25 @@ async def get_citation_stats(user: AdminUser) -> dict[str, Any]:
         return _citation_stats([])
     rows = await _select_rows(supabase, "citations_log", limit=1000, tenant_id=user.tenant_id, order_by=None)
     return _citation_stats(rows)
+
+
+@router.patch("/citations/{citation_id}", summary="Update a citation verification status")
+async def update_citation_status(citation_id: str, payload: dict[str, Any], user: AdminUser) -> dict[str, Any]:
+    supabase = await _require_supabase()
+    raw_status = str(payload.get("status") or "").strip().lower()
+    if raw_status not in {"verified", "rejected", "unverified", "partial"}:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unsupported citation status.")
+    updates = {
+        "status": raw_status,
+        "verified_by": user.sub if raw_status in {"verified", "rejected", "partial"} else None,
+        "verified_at": _now() if raw_status in {"verified", "rejected", "partial"} else None,
+    }
+    if payload.get("rejection_reason") is not None or raw_status == "rejected":
+        updates["rejection_reason"] = payload.get("rejection_reason") or "Marked hallucinated by admin"
+    row = await _update_row(supabase, "citations_log", citation_id, updates, tenant_id=user.tenant_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Citation log not found.")
+    return row
 
 
 @router.get("/case-graph", summary="List case citation edges")
@@ -1909,6 +2040,7 @@ def _security_events(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "createdAt": created_at,
             "action": "Review" if severity in {"critical", "high"} else "Monitor",
             "resolved": row.get("resolved") is True or row.get("success") is True,
+            "persisted": False,
         })
     return events[:100]
 
@@ -2022,6 +2154,7 @@ def _notification(
         "source": source,
         "time": "just now",
         "read": read,
+        "persisted": False,
     }
 
 
@@ -2139,6 +2272,207 @@ def _looks_secret_key(key: str) -> bool:
     return any(part in key.lower() for part in ("key", "secret", "token", "password"))
 
 
+async def _notification_table_rows(
+    supabase: Any,
+    *,
+    user: CurrentUser,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    if not user.tenant_id:
+        return []
+    rows = await _select_rows(supabase, "notifications", limit=limit, tenant_id=user.tenant_id)
+    return [
+        row for row in rows
+        if not row.get("user_id") or str(row.get("user_id")) == str(user.sub)
+    ]
+
+
+async def _notification_rows(supabase: Any, *, user: CurrentUser) -> list[dict[str, Any]]:
+    rows = await _notification_table_rows(supabase, user=user, limit=100)
+    return [_normalise_notification_row(row) for row in rows]
+
+
+def _normalise_notification_row(row: dict[str, Any]) -> dict[str, Any]:
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    kind = str(row.get("type") or "info").lower()
+    if kind not in {"critical", "warning", "info", "success"}:
+        kind = "info"
+    return {
+        "id": str(row.get("id") or ""),
+        "type": kind,
+        "title": str(row.get("title") or "Notification"),
+        "message": str(row.get("message") or ""),
+        "source": str(row.get("category") or metadata.get("source") or "System"),
+        "time": _time_ago(row.get("created_at")),
+        "read": row.get("is_read") is True,
+        "persisted": True,
+        "actionUrl": row.get("action_url"),
+        "createdAt": row.get("created_at"),
+    }
+
+
+async def _security_events_from_table(supabase: Any, *, user: CurrentUser) -> list[dict[str, Any]]:
+    rows = await _select_rows(
+        supabase,
+        "security_events",
+        limit=200,
+        tenant_id=user.tenant_id,
+        tenant_optional=True,
+    )
+    return [_normalise_security_event_row(row) for row in rows]
+
+
+def _normalise_security_event_row(row: dict[str, Any]) -> dict[str, Any]:
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    created_at = row.get("created_at") or ""
+    severity = str(row.get("severity") or "low").lower()
+    if severity == "info":
+        severity = "low"
+    if severity not in {"critical", "high", "medium", "low"}:
+        severity = "low"
+    return {
+        "id": str(row.get("id") or ""),
+        "type": str(row.get("event_type") or "security_event"),
+        "severity": severity,
+        "description": str(row.get("description") or ""),
+        "ip": str(row.get("source_ip") or metadata.get("ip") or "-"),
+        "user": str(row.get("user_id") or metadata.get("user") or "system"),
+        "timestamp": _time_ago(created_at),
+        "createdAt": created_at,
+        "action": str(metadata.get("action") or ("Resolved" if row.get("is_resolved") else "Review")),
+        "resolved": row.get("is_resolved") is True,
+        "persisted": True,
+    }
+
+
+async def _pii_records_from_table(supabase: Any, *, user: CurrentUser) -> list[dict[str, Any]]:
+    rows = await _select_rows(supabase, "pii_detections", limit=500, tenant_id=user.tenant_id)
+    return [_normalise_pii_detection_row(row) for row in rows]
+
+
+def _normalise_pii_detection_row(row: dict[str, Any]) -> dict[str, Any]:
+    pii_type = str(row.get("pii_type") or "PII")
+    status_value = str(row.get("status") or "flagged").lower()
+    normalized_status = status_value if status_value in {"masked", "deleted", "retained", "flagged"} else "flagged"
+    return {
+        "id": str(row.get("id") or ""),
+        "dataType": pii_type,
+        "source": str(row.get("source_table") or "unknown"),
+        "detectedIn": str(row.get("source_id") or row.get("source_column") or "-"),
+        "user": str(row.get("resolved_by") or "system"),
+        "tenant": str(row.get("tenant_id") or "-"),
+        "timestamp": _time_ago(row.get("created_at")),
+        "createdAt": row.get("created_at"),
+        "status": normalized_status,
+        "riskLevel": _pii_risk_level(pii_type),
+        "action": str(row.get("action_taken") or "Awaiting admin review"),
+        "persisted": True,
+    }
+
+
+async def _pii_rules_from_table(
+    supabase: Any,
+    *,
+    user: CurrentUser,
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows = await _select_rows(
+        supabase,
+        "pii_rules",
+        limit=500,
+        tenant_id=user.tenant_id,
+        tenant_optional=True,
+    )
+    if not rows:
+        return _pii_rules(records)
+    return [_normalise_pii_rule_row(row, records=records) for row in rows]
+
+
+def _normalise_pii_rule_row(row: dict[str, Any], *, records: list[dict[str, Any]]) -> dict[str, Any]:
+    pii_type = str(row.get("pii_type") or row.get("name") or "PII")
+    action = str(row.get("masking_strategy") or "redact")
+    return {
+        "id": str(row.get("id") or ""),
+        "type": str(row.get("name") or pii_type),
+        "pattern": str(row.get("pattern") or ""),
+        "action": action.replace("_", " ").title(),
+        "detected": len([record for record in records if str(record.get("dataType") or "") == pii_type]),
+        "enabled": row.get("is_active") is not False,
+        "piiType": pii_type,
+        "description": row.get("description"),
+        "persisted": True,
+    }
+
+
+def _pii_rule_payload(
+    payload: dict[str, Any],
+    *,
+    tenant_id: str | None,
+    partial: bool = False,
+) -> dict[str, Any]:
+    output: dict[str, Any] = {"updated_at": _now()} if partial else {}
+    if tenant_id and not partial:
+        output["tenant_id"] = tenant_id
+
+    name = payload.get("name") or payload.get("type")
+    if name is not None:
+        output["name"] = str(name).strip()
+    if payload.get("pattern") is not None:
+        output["pattern"] = str(payload.get("pattern") or "").strip()
+    pii_type = payload.get("pii_type") or payload.get("piiType") or payload.get("type")
+    if pii_type is not None:
+        output["pii_type"] = str(pii_type).strip().upper().replace(" ", "_")
+    if payload.get("description") is not None:
+        output["description"] = payload.get("description")
+    if payload.get("is_active") is not None or payload.get("enabled") is not None:
+        output["is_active"] = payload.get("is_active") if payload.get("is_active") is not None else payload.get("enabled")
+    if payload.get("masking_strategy") is not None or payload.get("action") is not None:
+        output["masking_strategy"] = _normalise_masking_strategy(payload.get("masking_strategy") or payload.get("action"))
+
+    if not partial:
+        missing = [key for key in ("name", "pattern", "pii_type") if not output.get(key)]
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Missing required PII rule fields: {', '.join(missing)}.",
+            )
+        output.setdefault("is_active", True)
+        output.setdefault("masking_strategy", "redact")
+    return output
+
+
+def _normalise_masking_strategy(value: Any) -> str:
+    text = str(value or "redact").strip().lower().replace("-", "_").replace(" ", "_")
+    if "alert" in text and "mask" in text:
+        return "redact_alert"
+    if "delete" in text:
+        return "delete"
+    if "block" in text:
+        return "block"
+    if "flag" in text:
+        return "flag"
+    if "retain" in text:
+        return "retain"
+    return "redact"
+
+
+def _pii_action_label(action: str) -> str:
+    return {
+        "masked": "Manually masked by admin",
+        "deleted": "Deleted per data-protection request",
+        "retained": "Retained with documented consent",
+    }.get(action, "Reviewed by admin")
+
+
+def _pii_risk_level(pii_type: str) -> str:
+    normalized = pii_type.upper()
+    if normalized in {"LAO_ID", "THAI_ID", "BANK_ACCOUNT", "CREDIT_CARD", "PASSPORT"}:
+        return "high"
+    if normalized in {"PHONE_LA", "PHONE_TH", "PHONE", "EMAIL", "ADDRESS"}:
+        return "medium"
+    return "low"
+
+
 def _pii_records(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for row in rows:
@@ -2163,6 +2497,7 @@ def _pii_records(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "status": "masked",
                 "riskLevel": "high" if str(pii_type).upper() in {"THAI_ID", "BANK_ACCOUNT", "CREDIT_CARD"} else "medium",
                 "action": "Automatically redacted before LLM call",
+                "persisted": False,
             })
     return records[:200]
 
@@ -2184,6 +2519,7 @@ def _pii_rules(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "action": action,
             "detected": len([row for row in records if row["dataType"] == pii_type]),
             "enabled": True,
+            "persisted": False,
         }
         for pii_type, pattern, action in patterns
     ]

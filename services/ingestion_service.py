@@ -14,6 +14,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from xml.etree import ElementTree
 
 from core.config import get_settings
@@ -24,6 +25,16 @@ from services.llm_service import EmbeddingService
 
 log = get_logger(__name__)
 
+LAO_LAW_CATEGORY_IDS = {
+    "constitution_justice",
+    "state_security",
+    "economy",
+    "social_culture",
+    "foreign_affairs",
+}
+DEFAULT_LAO_LAW_CATEGORY = "constitution_justice"
+INGESTION_PIPELINE_VERSION = 5
+
 
 @dataclass(frozen=True)
 class IngestionInput:
@@ -32,6 +43,7 @@ class IngestionInput:
     content: bytes
     document_type: str
     jurisdiction: str
+    law_category: str | None = None
     title: str | None = None
     year: int | None = None
     tags: list[str] = field(default_factory=list)
@@ -61,6 +73,7 @@ class IngestionResult:
     embedding_model: str | None
     review_status: str
     document_type: str
+    law_category: str
     jurisdiction: str
     extraction_method: str | None = None
     language: str | None = None
@@ -177,6 +190,8 @@ class LegalDocumentIngestionService:
         )
         embedding = await self._embed_text(text, jurisdiction=item.jurisdiction)
         source_table = _source_table(item.document_type)
+        law_category = normalise_lao_law_category(item.law_category)
+        legal_metadata = infer_lao_legal_metadata(text, title=title, source_url=item.source_url)
         job_id = str(uuid.uuid4())
 
         if not self._supabase:
@@ -198,6 +213,7 @@ class LegalDocumentIngestionService:
                 embedding_model=embedding["model"],
                 review_status=item.review_status,
                 document_type=item.document_type,
+                law_category=law_category,
                 jurisdiction=_short_jurisdiction(item.jurisdiction),
                 extraction_method=extracted_text.method,
                 language=extracted_text.quality.language,
@@ -213,6 +229,7 @@ class LegalDocumentIngestionService:
             embedding=embedding["vector"],
             chunks=chunks,
             extraction=extracted_text,
+            legal_metadata=legal_metadata,
         )
         chunk_embedding = await self._embed_chunks(chunks, jurisdiction=item.jurisdiction)
         chunks_indexed, chunk_index_warnings = await self._insert_chunks(
@@ -223,6 +240,8 @@ class LegalDocumentIngestionService:
             chunks=chunks,
             embeddings=chunk_embedding["vectors"],
             extraction=extracted_text,
+            legal_metadata=legal_metadata,
+            law_category=law_category,
         )
 
         log.info(
@@ -248,6 +267,7 @@ class LegalDocumentIngestionService:
             embedding_model=chunk_embedding["model"] or embedding["model"],
             review_status=item.review_status,
             document_type=item.document_type,
+            law_category=law_category,
             jurisdiction=_short_jurisdiction(item.jurisdiction),
             extraction_method=extracted_text.method,
             language=extracted_text.quality.language,
@@ -327,26 +347,28 @@ class LegalDocumentIngestionService:
         embedding: list[float] | None,
         chunks: list[LegalTextChunk],
         extraction: ExtractedLegalText,
+        legal_metadata: dict[str, Any],
     ) -> str:
-        extracted = infer_lao_legal_metadata(text, title=title, source_url=item.source_url)
+        law_category = normalise_lao_law_category(item.law_category)
         metadata = {
             "file_name": item.filename,
             "content_type": item.content_type,
             "source_url": item.source_url,
             "official_source_url": item.source_url if _is_official_lao_source(item.source_url) else None,
             "source_authority": _source_authority(item.source_url),
-            "language": item.language or extracted.get("language"),
-            "law_no": item.law_no or extracted.get("law_no"),
-            "article": item.article or extracted.get("article"),
-            "gazette_date": item.gazette_date or extracted.get("gazette_date"),
-            "effective_date": item.effective_date or extracted.get("effective_date"),
+            "language": item.language or legal_metadata.get("language"),
+            "law_category": law_category,
+            "law_no": item.law_no or legal_metadata.get("law_no"),
+            "article": item.article or legal_metadata.get("article"),
+            "gazette_date": item.gazette_date or legal_metadata.get("gazette_date"),
+            "effective_date": item.effective_date or legal_metadata.get("effective_date"),
             "review_status": item.review_status,
             "chunks": len(chunks),
             "text_length": len(text),
             "extraction_method": extraction.method,
             "text_quality": extraction.quality.to_metadata(),
             "extraction_warnings": extraction.warnings,
-            "ingestion_version": 4,
+            "ingestion_version": INGESTION_PIPELINE_VERSION,
         }
         vector = _vector_literal(embedding) if embedding else None
 
@@ -389,12 +411,17 @@ class LegalDocumentIngestionService:
         chunks: list[LegalTextChunk],
         embeddings: list[list[float] | None],
         extraction: ExtractedLegalText,
+        legal_metadata: dict[str, Any],
+        law_category: str,
     ) -> tuple[int, list[str]]:
         if not chunks:
             return 0, []
 
         payloads: list[dict[str, Any]] = []
         status = _active_status_for_review(item.review_status)
+        language = item.language or legal_metadata.get("language") or extraction.quality.language
+        law_no = item.law_no or legal_metadata.get("law_no")
+        article = item.article or legal_metadata.get("article")
         for chunk in chunks:
             embedding = embeddings[chunk.index] if chunk.index < len(embeddings) else None
             chunk_quality = assess_lao_legal_text_quality(chunk.content)
@@ -403,10 +430,15 @@ class LegalDocumentIngestionService:
                 "source_table": source_table,
                 "source_id": document_id,
                 "document_type": item.document_type,
+                "law_category": law_category,
                 "jurisdiction": _db_jurisdiction(item.jurisdiction),
                 "title": title,
                 "chunk_index": chunk.index,
                 "section_ref": chunk.section_ref,
+                "chapter_ref": _chapter_ref_from_section(chunk.section_ref),
+                "law_no": law_no,
+                "article": article or _article_from_section(chunk.section_ref),
+                "language": language,
                 "content": chunk.content,
                 "token_count": chunk.token_count,
                 "status": status,
@@ -415,12 +447,15 @@ class LegalDocumentIngestionService:
                     "file_name": item.filename,
                     "source_url": item.source_url,
                     "tags": item.tags,
-                    "law_no": item.law_no,
-                    "article": item.article,
+                    "law_category": law_category,
+                    "law_no": law_no,
+                    "article": article or _article_from_section(chunk.section_ref),
+                    "language": language,
                     "extraction_method": extraction.method,
                     "document_text_quality": extraction.quality.to_metadata(),
                     "chunk_text_quality": chunk_quality.to_metadata(),
-                    "ingestion_version": 4,
+                    "ingestion_version": INGESTION_PIPELINE_VERSION,
+                    "chunking_strategy": "lao_legal_section_paragraph_v2",
                 },
                 "embedding": _vector_literal(embedding) if embedding else None,
             })
@@ -433,8 +468,20 @@ class LegalDocumentIngestionService:
                 inserted += len(result.data or batch)
         except Exception as exc:
             log.warning("ingestion.chunk_insert.failed", error=str(exc))
+            legacy_payloads = [_legacy_chunk_payload(payload) for payload in payloads]
+            if legacy_payloads != payloads:
+                try:
+                    for start in range(0, len(legacy_payloads), 100):
+                        batch = legacy_payloads[start:start + 100]
+                        result = await self._supabase.table("document_chunks").insert(batch).execute()
+                        inserted += len(result.data or batch)
+                    return inserted, [
+                        "document_chunks table accepted a legacy schema; apply supabase_lao_law_categories.sql for category-level RAG."
+                    ]
+                except Exception as retry_exc:
+                    log.warning("ingestion.chunk_insert_legacy.failed", error=str(retry_exc))
             return inserted, [
-                "document_chunks table is not available; apply supabase_agentic_rag_chunks.sql to enable chunk-level RAG."
+                "document_chunks table is not available; apply supabase_agentic_rag_chunks.sql and supabase_lao_law_categories.sql to enable chunk-level RAG."
             ]
 
         return inserted, []
@@ -494,7 +541,7 @@ def extract_text_with_metadata(content: bytes, content_type: str, filename: str)
 
 SECTION_HEADING_RE = re.compile(
     r"(?im)^(?P<section>"
-    r"(?:มาตรา|ข้อ|หมวด|บทที่|ມາດຕາ|Article|Art\.|Section|Sec\.|Chapter|Part)"
+    r"(?:มาตรา|ข้อ|หมวด|บทที่|ມາດຕາ|ຂໍ້|ຫມວດ|ໝວດ|ພາກ|ບົດທີ|Article|Art\.|Section|Sec\.|Chapter|Part)"
     r"\s+[0-9A-Za-zก-๙ກ-ຮ./-]+"
     r")"
 )
@@ -750,12 +797,13 @@ def chunk_text(text: str, *, max_chars: int = 3200, overlap: int = 300) -> list[
 
 
 def chunk_legal_text(text: str, *, max_chars: int = 2600, overlap: int = 350) -> list[LegalTextChunk]:
-    text = normalise_lao_legal_text(text)
-    clean = re.sub(r"\s+", " ", text).strip()
-    if not clean:
+    text = _normalise_chunk_source_text(text)
+    if not text:
         return []
 
     chunks: list[LegalTextChunk] = []
+    max_chars = max(400, int(max_chars))
+    overlap = max(0, int(overlap))
     raw_sections = _split_legal_sections(text)
     chunk_index = 0
 
@@ -775,15 +823,50 @@ def chunk_legal_text(text: str, *, max_chars: int = 2600, overlap: int = 350) ->
     return chunks
 
 
+def _normalise_chunk_source_text(text: str) -> str:
+    """Keep legal structure readable while removing PDF line-wrap noise."""
+    normalized = normalise_lao_legal_text(text)
+    if not normalized:
+        return ""
+
+    blocks: list[str] = []
+    paragraph_lines: list[str] = []
+
+    def flush_paragraph() -> None:
+        if not paragraph_lines:
+            return
+        blocks.append(re.sub(r"\s+", " ", " ".join(paragraph_lines)).strip())
+        paragraph_lines.clear()
+
+    for raw_line in normalized.splitlines():
+        line = re.sub(r"[ \t]+", " ", raw_line).strip()
+        if not line:
+            flush_paragraph()
+            continue
+        if _is_legal_heading_line(line):
+            flush_paragraph()
+            blocks.append(line)
+            continue
+        paragraph_lines.append(line)
+
+    flush_paragraph()
+    return _trim_chunk_text("\n\n".join(block for block in blocks if block))
+
+
+def _is_legal_heading_line(line: str) -> bool:
+    return bool(SECTION_HEADING_RE.match(line.strip()))
+
+
 def _split_legal_sections(text: str) -> list[tuple[str | None, str]]:
+    text = _trim_chunk_text(text)
     matches = list(SECTION_HEADING_RE.finditer(text))
     if not matches:
-        return [(None, re.sub(r"\s+", " ", text).strip())]
+        return [(None, text)] if text else []
 
     sections: list[tuple[str | None, str]] = []
     first_start = matches[0].start()
-    if first_start > 100:
-        preamble = re.sub(r"\s+", " ", text[:first_start]).strip()
+    if first_start > 0:
+        preamble = _trim_chunk_text(text[:first_start])
         if preamble:
             sections.append(("Preamble", preamble))
 
@@ -791,15 +874,15 @@ def _split_legal_sections(text: str) -> list[tuple[str | None, str]]:
         start = match.start()
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
         section_ref = re.sub(r"\s+", " ", match.group("section")).strip()
-        section_text = re.sub(r"\s+", " ", text[start:end]).strip()
+        section_text = _trim_chunk_text(text[start:end])
         if section_text:
             sections.append((section_ref, section_text))
 
-    return sections or [(None, re.sub(r"\s+", " ", text).strip())]
+    return sections or ([(None, text)] if text else [])
 
 
 def _split_with_overlap(text: str, *, max_chars: int, overlap: int) -> list[str]:
-    clean = re.sub(r"\s+", " ", text).strip()
+    clean = _trim_chunk_text(text)
     if not clean:
         return []
     if len(clean) <= max_chars:
@@ -807,17 +890,110 @@ def _split_with_overlap(text: str, *, max_chars: int, overlap: int) -> list[str]
 
     chunks: list[str] = []
     safe_overlap = min(overlap, max_chars // 2)
+    current_blocks: list[str] = []
+
+    for block in _paragraph_blocks(clean):
+        if len(block) > max_chars:
+            long_text = _join_chunk_blocks([*current_blocks, block]) if current_blocks else block
+            chunks.extend(_split_long_block(long_text, max_chars=max_chars, overlap=safe_overlap))
+            current_blocks = []
+            continue
+
+        if current_blocks and len(_join_chunk_blocks([*current_blocks, block])) > max_chars:
+            chunks.append(_join_chunk_blocks(current_blocks))
+            overlap_blocks = _tail_overlap_blocks(current_blocks, safe_overlap)
+            current_blocks = (
+                overlap_blocks
+                if overlap_blocks and len(_join_chunk_blocks([*overlap_blocks, block])) <= max_chars
+                else []
+            )
+
+        current_blocks.append(block)
+
+    if current_blocks:
+        chunks.append(_join_chunk_blocks(current_blocks))
+
+    return [chunk for chunk in chunks if chunk]
+
+
+def _paragraph_blocks(text: str) -> list[str]:
+    return [
+        _trim_chunk_text(part)
+        for part in re.split(r"\n{2,}", text)
+        if _trim_chunk_text(part)
+    ]
+
+
+def _join_chunk_blocks(blocks: list[str]) -> str:
+    return _trim_chunk_text("\n\n".join(blocks))
+
+
+def _tail_overlap_blocks(blocks: list[str], overlap: int) -> list[str]:
+    if overlap <= 0:
+        return []
+    tail: list[str] = []
+    for block in reversed(blocks):
+        candidate = [block, *tail]
+        candidate_text = _join_chunk_blocks(candidate)
+        if len(candidate_text) > overlap and tail:
+            break
+        if len(candidate_text) > overlap:
+            break
+        tail = candidate
+    return tail
+
+
+def _split_long_block(text: str, *, max_chars: int, overlap: int) -> list[str]:
+    clean = _trim_chunk_text(text)
+    if len(clean) <= max_chars:
+        return [clean]
+
+    parts: list[str] = []
+    safe_overlap = min(overlap, max_chars // 2)
     start = 0
     while start < len(clean):
         end = min(len(clean), start + max_chars)
-        boundary = clean.rfind(" ", start, end)
-        if boundary > start + max_chars * 0.6:
-            end = boundary
-        chunks.append(clean[start:end].strip())
+        end = _find_chunk_boundary(clean, start=start, end=end, max_chars=max_chars)
+        part = _trim_chunk_text(clean[start:end])
+        if part:
+            parts.append(part)
         if end >= len(clean):
             break
-        start = max(0, end - safe_overlap)
-    return chunks
+        next_start = max(0, end - safe_overlap)
+        if next_start <= start:
+            next_start = end
+        start = _advance_past_combining_marks(clean, next_start)
+    return parts
+
+
+def _find_chunk_boundary(text: str, *, start: int, end: int, max_chars: int) -> int:
+    if end >= len(text):
+        return len(text)
+
+    minimum = start + int(max_chars * 0.58)
+    boundary = text.rfind("\n\n", start, end)
+    if boundary >= minimum:
+        return _advance_past_combining_marks(text, boundary)
+
+    for separator in (". ", "। ", "。 ", "! ", "? ", "; ", " "):
+        boundary = text.rfind(separator, start, end)
+        if boundary >= minimum:
+            return _advance_past_combining_marks(text, boundary + len(separator))
+
+    return _advance_past_combining_marks(text, end)
+
+
+def _advance_past_combining_marks(text: str, index: int) -> int:
+    while 0 < index < len(text) and unicodedata.category(text[index]).startswith("M"):
+        index += 1
+    return index
+
+
+def _trim_chunk_text(text: str) -> str:
+    trimmed = re.sub(r"[ \t]+", " ", text or "")
+    trimmed = re.sub(r" *\n *", "\n", trimmed)
+    trimmed = re.sub(r"\n{3,}", "\n\n", trimmed)
+    return trimmed.strip()
 
 
 def _extract_pdf(content: bytes) -> ExtractedLegalText:
@@ -930,8 +1106,15 @@ def _looks_like_garbled_pdf_text(text: str) -> bool:
     quality = assess_lao_legal_text_quality(sample)
     if not quality.is_usable:
         return True
+    if quality.score < MIN_PDF_TEXT_QUALITY:
+        return True
     if quality.language == "lo" and quality.needs_review:
-        if quality.repeated_symbol_runs >= 4 or quality.suspicious_latin_tokens >= 10:
+        if (
+            quality.repeated_symbol_runs >= 3
+            or quality.suspicious_latin_tokens >= 8
+            or (quality.lao_ratio < 0.18 and quality.char_count > 500)
+            or quality.symbol_ratio > 0.42
+        ):
             return True
 
     replacement_ratio = sample.count("\ufffd") / len(chars)
@@ -1150,6 +1333,30 @@ def _source_table(document_type: str) -> str:
     return "laws"
 
 
+def normalise_lao_law_category(value: str | None) -> str:
+    normalized = (value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in LAO_LAW_CATEGORY_IDS:
+        return normalized
+    return DEFAULT_LAO_LAW_CATEGORY
+
+
+def _chapter_ref_from_section(section_ref: str | None) -> str | None:
+    if not section_ref:
+        return None
+    match = re.search(r"(?i)(?:chapter|part|หมวด|ພາກ|ຫມວດ|ໝວດ)\s*([0-9A-Za-zก-๙ກ-ຮ./-]+)", section_ref)
+    return match.group(0).strip() if match else None
+
+
+def _article_from_section(section_ref: str | None) -> str | None:
+    if not section_ref:
+        return None
+    match = re.search(
+        r"(?i)(?:article|art\.?|section|sec\.?|มาตรา|ມາດຕາ)\s*([0-9A-Za-zก-๙ກ-ຮ./-]+)",
+        section_ref,
+    )
+    return match.group(1).strip() if match else None
+
+
 def _title_from_filename(filename: str) -> str:
     stem = filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
     return re.sub(r"\.[^.]+$", "", stem).replace("_", " ").replace("-", " ").strip() or filename
@@ -1194,13 +1401,24 @@ def _first_match(text: str, patterns: list[str]) -> str | None:
 
 
 def _source_authority(source_url: str | None) -> str:
-    if _is_official_lao_source(source_url):
+    host = _source_host(source_url)
+    if host in {"na.gov.la", "www.na.gov.la"} or host.endswith(".na.gov.la"):
+        return "lao_national_assembly"
+    if host in {"laoofficialgazette.gov.la", "www.laoofficialgazette.gov.la"}:
         return "lao_official_gazette"
     return "uploaded"
 
 
 def _is_official_lao_source(source_url: str | None) -> bool:
-    return bool(source_url and "laoofficialgazette.gov.la" in source_url.lower())
+    return _source_authority(source_url) in {"lao_national_assembly", "lao_official_gazette"}
+
+
+def _source_host(source_url: str | None) -> str:
+    if not source_url:
+        return ""
+    parsed = urlparse(source_url)
+    host = parsed.netloc or parsed.path.split("/", 1)[0]
+    return host.lower().strip()
 
 
 def _vector_literal(vector: list[float]) -> str:
@@ -1232,6 +1450,7 @@ def _build_insert_payloads(
                 "jurisdiction": _db_jurisdiction(item.jurisdiction),
                 "year_be": item.year,
                 "language": metadata.get("language"),
+                "law_category": metadata.get("law_category"),
                 "official_source_url": metadata.get("official_source_url"),
                 "source_authority": metadata.get("source_authority"),
                 "status": modern_status,
@@ -1250,6 +1469,7 @@ def _build_insert_payloads(
                 "court": "Unknown",
                 "year": item.year or 0,
                 "language": metadata.get("language"),
+                "law_category": metadata.get("law_category"),
                 "official_source_url": metadata.get("official_source_url"),
                 "source_authority": metadata.get("source_authority"),
                 "review_status": item.review_status,
@@ -1269,11 +1489,13 @@ def _build_insert_payloads(
                 "title": title,
                 "form_type": "general",
                 "jurisdiction": _db_jurisdiction(item.jurisdiction),
+                "law_category": metadata.get("law_category"),
                 "official_source_url": metadata.get("official_source_url"),
                 "source_authority": metadata.get("source_authority"),
                 "review_status": item.review_status,
                 "content": text,
                 "tags": tags,
+                "metadata": metadata,
                 "embedding": vector,
                 "is_active": item.review_status == "approved",
             },
@@ -1283,10 +1505,12 @@ def _build_insert_payloads(
                 "form_type": "general",
                 "jurisdiction": _short_jurisdiction(item.jurisdiction),
                 "language": _short_jurisdiction(item.jurisdiction),
+                "law_category": metadata.get("law_category"),
                 "official_source_url": metadata.get("official_source_url"),
                 "source_authority": metadata.get("source_authority"),
                 "review_status": item.review_status,
                 "content": text,
+                "metadata": metadata,
                 "embedding": vector,
                 "is_active": item.review_status == "approved",
             },
@@ -1300,6 +1524,7 @@ def _build_insert_payloads(
             "jurisdiction": _db_jurisdiction(item.jurisdiction),
             "year_be": item.year,
             "language": metadata.get("language"),
+            "law_category": metadata.get("law_category"),
             "official_source_url": metadata.get("official_source_url"),
             "source_authority": metadata.get("source_authority"),
             "law_no": metadata.get("law_no"),
@@ -1322,6 +1547,7 @@ def _build_insert_payloads(
             "jurisdiction": _short_jurisdiction(item.jurisdiction),
             "year": item.year,
             "language": metadata.get("language"),
+            "law_category": metadata.get("law_category"),
             "official_source_url": metadata.get("official_source_url"),
             "source_authority": metadata.get("source_authority"),
             "law_no": metadata.get("law_no"),
@@ -1340,6 +1566,7 @@ def _build_insert_payloads(
 def _legacy_payload(payload: dict[str, Any]) -> dict[str, Any]:
     optional_columns = {
         "language",
+        "law_category",
         "official_source_url",
         "source_authority",
         "law_no",
@@ -1353,8 +1580,20 @@ def _legacy_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "reviewed_at",
         "review_notes",
         "is_active",
+        "metadata",
     }
     legacy = {key: value for key, value in payload.items() if key not in optional_columns}
     if payload.get("review_status") and legacy.get("status") == "pending":
         legacy["status"] = "active"
     return legacy
+
+
+def _legacy_chunk_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    optional_columns = {
+        "law_category",
+        "chapter_ref",
+        "law_no",
+        "article",
+        "language",
+    }
+    return {key: value for key, value in payload.items() if key not in optional_columns}
