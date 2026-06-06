@@ -276,8 +276,8 @@ class LegalDocumentIngestionService:
         )
 
     async def _embed_text(self, text: str, *, jurisdiction: str) -> dict[str, Any]:
+        embedding_text = text[:8000]
         try:
-            embedding_text = text[:8000]
             result = await self._embedder.embed(
                 embedding_text,
                 multilingual=_needs_multilingual_embedding(embedding_text, jurisdiction),
@@ -291,6 +291,27 @@ class LegalDocumentIngestionService:
                 "warnings": ["Embedding provider is not configured; vector embedding was not generated."],
             }
         except Exception as exc:
+            shorter_text = text[:2500]
+            if shorter_text and shorter_text != embedding_text:
+                try:
+                    result = await self._embedder.embed(
+                        shorter_text,
+                        multilingual=_needs_multilingual_embedding(shorter_text, jurisdiction),
+                    )
+                    log.warning("ingestion.embedding.retried_shorter_text", error=str(exc))
+                    return {
+                        "vector": result.vector,
+                        "model": result.model,
+                        "warnings": [
+                            "Full-document embedding needed a shorter excerpt; "
+                            "chunk embeddings are still the primary RAG index."
+                        ],
+                    }
+                except Exception as retry_exc:
+                    log.warning(
+                        "ingestion.embedding.shorter_retry_failed",
+                        error=str(retry_exc),
+                    )
             log.warning("ingestion.embedding.failed", error=str(exc))
             return {
                 "vector": None,
@@ -476,12 +497,14 @@ class LegalDocumentIngestionService:
                         result = await self._supabase.table("document_chunks").insert(batch).execute()
                         inserted += len(result.data or batch)
                     return inserted, [
-                        "document_chunks table accepted a legacy schema; apply supabase_lao_law_categories.sql for category-level RAG."
+                        "document_chunks table accepted a legacy schema; "
+                        "apply supabase_lao_law_categories.sql for category-level RAG."
                     ]
                 except Exception as retry_exc:
                     log.warning("ingestion.chunk_insert_legacy.failed", error=str(retry_exc))
             return inserted, [
-                "document_chunks table is not available; apply supabase_agentic_rag_chunks.sql and supabase_lao_law_categories.sql to enable chunk-level RAG."
+                "document_chunks table is not available; apply supabase_agentic_rag_chunks.sql "
+                "and supabase_lao_law_categories.sql to enable chunk-level RAG."
             ]
 
         return inserted, []
@@ -669,9 +692,7 @@ def _is_pdf_artifact_line(line: str) -> bool:
         return True
     if suspicious_latin and lao_count < 8 and len(suspicious_latin) >= 2:
         return True
-    if len(chars) <= 6 and lao_count == 0 and latin_tokens:
-        return True
-    return False
+    return bool(len(chars) <= 6 and lao_count == 0 and latin_tokens)
 
 
 def assess_lao_legal_text_quality(text: str) -> TextQualityReport:
@@ -1092,7 +1113,8 @@ def _extract_pdf(content: bytes) -> ExtractedLegalText:
     }
     raise UnsupportedFileTypeError(
         "PDF text extraction failed. The PDF text layer appears scanned, missing, or garbled. "
-        "Install Tesseract OCR with Lao/Thai language data, increase OCR quality, or upload a Unicode text-searchable PDF.",
+        "Install Tesseract OCR with Lao/Thai language data, increase OCR quality, "
+        "or upload a Unicode text-searchable PDF.",
         details=details,
     )
 
@@ -1108,14 +1130,17 @@ def _looks_like_garbled_pdf_text(text: str) -> bool:
         return True
     if quality.score < MIN_PDF_TEXT_QUALITY:
         return True
-    if quality.language == "lo" and quality.needs_review:
-        if (
+    if (
+        quality.language == "lo"
+        and quality.needs_review
+        and (
             quality.repeated_symbol_runs >= 3
             or quality.suspicious_latin_tokens >= 8
             or (quality.lao_ratio < 0.18 and quality.char_count > 500)
             or quality.symbol_ratio > 0.42
-        ):
-            return True
+        )
+    ):
+        return True
 
     replacement_ratio = sample.count("\ufffd") / len(chars)
     if replacement_ratio > 0.01:
@@ -1137,14 +1162,19 @@ def _looks_like_garbled_pdf_text(text: str) -> bool:
     if suspicious_ratio > 0.45:
         return True
 
-    hyphen_noise = len(re.findall(r"(?:[A-Za-zÀ-ÿ®©ªº¯½¾¿¡§¦£¥µ±²³´ð−†™‰„]{1,6}-){2,}", sample))
-    extended_tokens = len(re.findall(r"[A-Za-zÀ-ÿ®©ªº¯½¾¿¡§¦£¥µ±²³´ð−†™‰„]*[À-ÿ®©ªº¯½¾¿¡§¦£¥µ±²³´ð−†™‰„][A-Za-zÀ-ÿ®©ªº¯½¾¿¡§¦£¥µ±²³´ð−†™‰„]*", sample))
+    mojibake_token_chars = r"A-Za-zÀ-ÿ®©ªº¯½¾¿¡§¦£¥µ±²³´ð−†™‰„"
+    hyphen_noise = len(re.findall(rf"(?:[{mojibake_token_chars}]{{1,6}}-){{2,}}", sample))
+    extended_tokens = len(
+        re.findall(
+            rf"[{mojibake_token_chars}]*[À-ÿ®©ªº¯½¾¿¡§¦£¥µ±²³´ð−†™‰„]"
+            rf"[{mojibake_token_chars}]*",
+            sample,
+        )
+    )
 
     if suspicious_ratio > 0.18 and hyphen_noise >= 2:
         return True
-    if suspicious_ratio > 0.28 and extended_tokens >= 20:
-        return True
-    return False
+    return bool(suspicious_ratio > 0.28 and extended_tokens >= 20)
 
 
 def _extract_pdf_with_ocr(content: bytes, *, errors: list[str]) -> str:
@@ -1207,7 +1237,10 @@ def _extract_pdf_with_ocr(content: bytes, *, errors: list[str]) -> str:
 
     text = "\n\n".join(text_parts)
     if not text.strip():
-        errors.append("OCR fallback extracted no text; the scan may be low quality or Tesseract language data may be missing.")
+        errors.append(
+            "OCR fallback extracted no text; the scan may be low quality "
+            "or Tesseract language data may be missing."
+        )
     return text
 
 

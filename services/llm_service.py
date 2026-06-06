@@ -12,8 +12,9 @@ Design principles:
 """
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import AsyncIterator
+from typing import Any
 
 from tenacity import (
     retry,
@@ -160,8 +161,6 @@ class _AnthropicProvider:
         system: str | None = None,
         max_tokens: int = 4096,
     ) -> AsyncIterator[str]:
-        import anthropic
-
         msgs = [{"role": m.role, "content": m.content} for m in messages]
         kwargs: dict = dict(model=model, messages=msgs, max_tokens=max_tokens)
         if system:
@@ -544,6 +543,15 @@ class EmbeddingService:
                 kwargs["default_headers"] = default_headers
             self._client = openai.AsyncOpenAI(**kwargs)
 
+    @retry(
+        retry=retry_if_exception_type(Exception),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+        stop=stop_after_attempt(3),
+        reraise=True,
+    )
+    async def _create_embeddings(self, request: dict[str, Any]) -> Any:
+        return await self._client.embeddings.create(**request)
+
     async def embed(self, text: str, *, multilingual: bool = False) -> EmbeddingResult:
         results = await self.embed_many([text], multilingual=multilingual)
         return results[0]
@@ -565,15 +573,26 @@ class EmbeddingService:
         if self._dims and _base_model_name(model).startswith("text-embedding-3"):
             request["dimensions"] = int(self._dims)
 
-        response = await self._client.embeddings.create(**request)
+        response = await self._create_embeddings(request)
+        data = list(getattr(response, "data", None) or [])
+        if not data:
+            raise ExternalServiceError(
+                "Embedding provider returned no vectors.",
+                details={
+                    "provider": self._provider_name,
+                    "model": model,
+                    "input_count": len(texts),
+                },
+            )
+
         usage = getattr(response, "usage", None)
         total_tokens = int(getattr(usage, "total_tokens", 0) or 0)
-        per_item_tokens = total_tokens // max(1, len(response.data))
+        per_item_tokens = total_tokens // max(1, len(data))
         return [
             EmbeddingResult(
                 vector=item.embedding,
                 model=model,
                 tokens=per_item_tokens,
             )
-            for item in sorted(response.data, key=lambda item: getattr(item, "index", 0))
+            for item in sorted(data, key=lambda item: getattr(item, "index", 0))
         ]

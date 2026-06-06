@@ -432,10 +432,20 @@ async def list_ingestion_jobs(
         if user.tenant_id:
             query = query.eq("tenant_id", user.tenant_id)
         result = await query.execute()
-        return await _normalise_ingestion_jobs_with_knowledge_state(supabase, result.data or [])
+        actual_jobs = await _normalise_ingestion_jobs_with_knowledge_state(supabase, result.data or [])
+        synthetic_jobs = await _synthesise_ingestion_jobs(
+            supabase,
+            limit=limit,
+            tenant_id=user.tenant_id,
+        )
+        return _merge_ingestion_history(actual_jobs, synthetic_jobs, limit=limit)
     except Exception as exc:
         log.warning("admin.ingestion_jobs.failed", error=str(exc))
-        return await _synthesise_ingestion_jobs(supabase, limit=limit)
+        return await _synthesise_ingestion_jobs(
+            supabase,
+            limit=limit,
+            tenant_id=user.tenant_id,
+        )
 
 
 @router.delete("/ingestion/{job_id}", summary="Delete an ingestion job record")
@@ -524,6 +534,54 @@ async def _normalise_ingestion_jobs_with_knowledge_state(
         normalised.append(item)
 
     return normalised
+
+
+def _merge_ingestion_history(
+    actual_jobs: list[dict[str, Any]],
+    synthetic_jobs: list[dict[str, Any]],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    seen_documents: set[str] = set()
+
+    for job in [*actual_jobs, *synthetic_jobs]:
+        job_id = str(job.get("id") or "")
+        document_key = _ingestion_history_document_key(job)
+        if job_id and job_id in seen_ids:
+            continue
+        if document_key and document_key in seen_documents:
+            continue
+
+        merged.append(job)
+        if job_id:
+            seen_ids.add(job_id)
+        if document_key:
+            seen_documents.add(document_key)
+
+    merged.sort(key=_ingestion_history_sort_key, reverse=True)
+    return merged[:limit]
+
+
+def _ingestion_history_document_key(job: dict[str, Any]) -> str | None:
+    result = job.get("result") if isinstance(job.get("result"), dict) else {}
+    config = job.get("config") if isinstance(job.get("config"), dict) else {}
+    document_id = result.get("document_id")
+    source_table = result.get("source_table") or config.get("source_table")
+    if not document_id or not source_table:
+        return None
+    return f"{source_table}:{document_id}"
+
+
+def _ingestion_history_sort_key(job: dict[str, Any]) -> str:
+    return str(
+        job.get("created_at")
+        or job.get("started_at")
+        or job.get("completed_at")
+        or job.get("updated_at")
+        or ""
+    )
 
 
 @router.get("/rag/health", summary="Inspect chunk-level RAG readiness")
@@ -1107,7 +1165,12 @@ def _title_from_filename(filename: str) -> str:
     return re.sub(r"\.[^.]+$", "", stem).replace("_", " ").replace("-", " ").strip() or filename
 
 
-async def _synthesise_ingestion_jobs(supabase: Any, *, limit: int) -> list[dict[str, Any]]:
+async def _synthesise_ingestion_jobs(
+    supabase: Any,
+    *,
+    limit: int,
+    tenant_id: str | None = None,
+) -> list[dict[str, Any]]:
     jobs: list[dict[str, Any]] = []
     table_specs = [
         ("laws", "statute", "full_text"),
@@ -1117,7 +1180,10 @@ async def _synthesise_ingestion_jobs(supabase: Any, *, limit: int) -> list[dict[
 
     for table, document_type, text_field in table_specs:
         try:
-            result = await supabase.table(table).select("*").limit(limit).execute()
+            query = supabase.table(table).select("*").limit(limit)
+            if tenant_id:
+                query = query.eq("tenant_id", tenant_id)
+            result = await query.execute()
         except Exception as exc:
             log.warning("admin.synthesise_ingestion_jobs_table.failed", table=table, error=str(exc))
             continue
@@ -1130,6 +1196,14 @@ async def _synthesise_ingestion_jobs(supabase: Any, *, limit: int) -> list[dict[
             created_at = row.get("ingested_at") or row.get("created_at") or row.get("updated_at")
             review_status = row.get("review_status") or metadata.get("review_status") or "approved"
             text = row.get(text_field) or row.get("full_text") or row.get("summary") or ""
+            history_status = (
+                "pending_review"
+                if review_status == "pending_review"
+                else "rejected"
+                if review_status == "rejected"
+                else "completed"
+            )
+            progress = 90 if history_status == "pending_review" else 100
 
             jobs.append({
                 "id": row.get("id"),
@@ -1138,8 +1212,8 @@ async def _synthesise_ingestion_jobs(supabase: Any, *, limit: int) -> list[dict[
                 "source_type": "knowledge_table",
                 "source_url": row.get("source_url") or row.get("official_source_url") or metadata.get("source_url"),
                 "file_name": metadata.get("file_name") or title,
-                "status": "pending_review" if review_status == "pending_review" else "completed",
-                "progress": 90 if review_status == "pending_review" else 100,
+                "status": history_status,
+                "progress": progress,
                 "total_items": 1,
                 "processed_items": 1,
                 "error_count": 0,
@@ -1154,7 +1228,7 @@ async def _synthesise_ingestion_jobs(supabase: Any, *, limit: int) -> list[dict[
                     "document_id": row.get("id"),
                     "source_table": table,
                     "title": title,
-                    "status": row.get("status"),
+                    "status": "rejected" if review_status == "rejected" else row.get("status"),
                     "review_status": review_status,
                     "chunks": metadata.get("chunks"),
                     "text_length": metadata.get("text_length") or len(text),

@@ -1,10 +1,10 @@
 from services.ingestion_service import (
-    chunk_legal_text,
-    extract_text_with_metadata,
     _is_official_lao_source,
     _looks_like_garbled_pdf_text,
     _source_authority,
     assess_lao_legal_text_quality,
+    chunk_legal_text,
+    extract_text_with_metadata,
     normalise_lao_legal_text,
 )
 
