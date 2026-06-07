@@ -33,6 +33,11 @@ async def get_user_profile(user_id: str, user: AdminUser) -> dict[str, Any]:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User profile not found.",
         )
+    if user.role != "super_admin" and str(profile.get("tenant_id") or "") != user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found.",
+        )
 
     return _normalise_profile(profile)
 

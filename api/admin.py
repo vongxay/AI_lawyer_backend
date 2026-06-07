@@ -664,11 +664,26 @@ async def update_admin_user(
         for key, value in updates.items()
         if key in {"email", "full_name", "role", "tenant_id", "is_active"}
     }
-    if not allowed_updates:
-        existing = await _fetch_admin_user(supabase, user_id)
-        if existing:
-            return _normalise_admin_user(existing)
+    existing = await _fetch_admin_user(supabase, user_id)
+    if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    _ensure_admin_can_manage_user(user, existing)
+
+    if user.role != "super_admin":
+        if "tenant_id" in allowed_updates and str(allowed_updates["tenant_id"]) != user.tenant_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only a super admin can move users between tenants.",
+            )
+        allowed_updates.pop("tenant_id", None)
+        if allowed_updates.get("role") == "super_admin" or existing.get("role") == "super_admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only a super admin can manage super admin accounts.",
+            )
+
+    if not allowed_updates:
+        return _normalise_admin_user(existing)
 
     attempts = [
         allowed_updates,
@@ -692,9 +707,9 @@ async def update_admin_user(
         except Exception as exc:
             log.warning("admin.update_user.failed", fields=list(attempt), error=str(exc))
 
-    existing = await _fetch_admin_user(supabase, user_id)
-    if existing:
-        return _normalise_admin_user(existing)
+    refreshed = await _fetch_admin_user(supabase, user_id)
+    if refreshed:
+        return _normalise_admin_user(refreshed)
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
 
@@ -711,6 +726,16 @@ async def delete_admin_user(user_id: str, user: AdminUser) -> dict[str, Any]:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Supabase database is not configured.",
+        )
+
+    existing = await _fetch_admin_user(supabase, user_id)
+    if not existing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    _ensure_admin_can_manage_user(user, existing)
+    if user.role != "super_admin" and existing.get("role") == "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only a super admin can delete a super admin account.",
         )
 
     try:
@@ -739,11 +764,17 @@ async def get_audit_log(
 
     for order_column in ("created_at", "ts"):
         try:
-            result = await supabase.table("audit_log") \
-                .select("*") \
-                .order(order_column, desc=True) \
-                .range(offset, offset + limit - 1) \
+            query = supabase.table("audit_log").select("*")
+            if user.role != "super_admin":
+                if not user.tenant_id:
+                    return []
+                query = query.eq("tenant_id", user.tenant_id)
+            result = await (
+                query
+                .order(order_column, desc=True)
+                .range(offset, offset + limit - 1)
                 .execute()
+            )
             return [_normalise_audit_log(row) for row in (result.data or [])]
         except Exception as exc:
             log.error("admin.audit_log.failed", order_column=order_column, error=str(exc))
@@ -848,6 +879,13 @@ async def _fetch_admin_user(supabase: Any, user_id: str) -> dict[str, Any] | Non
             log.warning("admin.fetch_user.failed", columns=columns, error=str(exc))
 
     return None
+
+
+def _ensure_admin_can_manage_user(user: CurrentUser, target: dict[str, Any]) -> None:
+    if user.role == "super_admin":
+        return
+    if str(target.get("tenant_id") or "") != user.tenant_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
 
 def _normalise_admin_user(row: dict[str, Any]) -> dict[str, Any]:

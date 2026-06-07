@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     supabase_url: str | None = None
     supabase_key: str | None = None             # service_role key (server-side only)
     supabase_anon_key: str | None = None
+    default_tenant_id: str = "00000000-0000-0000-0000-000000000001"
 
     # ── Cache — Redis ──────────────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
