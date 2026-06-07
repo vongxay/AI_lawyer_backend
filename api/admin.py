@@ -1171,7 +1171,7 @@ def _upload_failure_hint(exc: UnsupportedFileTypeError, *, content_type: str) ->
     if content_type == "application/pdf" and "PDF text extraction failed" in exc.message:
         return (
             "This PDF could not be indexed with reliable Lao legal text. Use a Unicode text-searchable PDF, "
-            "or install/configure Tesseract with Lao/Thai language data and re-upload."
+            "or install/configure Tesseract with Lao language data and re-upload."
         )
     return exc.message
 

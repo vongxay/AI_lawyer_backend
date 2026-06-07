@@ -144,7 +144,7 @@ class Settings(BaseSettings):
     pdf_detect_garbled_text: bool = True
     pdf_ocr_max_pages: int = 0
     pdf_ocr_dpi: int = 300
-    pdf_ocr_languages: str = "lao+tha+eng"
+    pdf_ocr_languages: str = "lao+eng"
     tesseract_cmd: str | None = None
     tessdata_prefix: str | None = None
     allowed_upload_types: str = (

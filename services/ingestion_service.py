@@ -33,7 +33,7 @@ LAO_LAW_CATEGORY_IDS = {
     "foreign_affairs",
 }
 DEFAULT_LAO_LAW_CATEGORY = "constitution_justice"
-INGESTION_PIPELINE_VERSION = 5
+INGESTION_PIPELINE_VERSION = 6
 
 
 @dataclass(frozen=True)
@@ -95,6 +95,7 @@ class TextQualityReport:
     language: str
     char_count: int
     lao_ratio: float
+    thai_ratio: float
     latin_ratio: float
     symbol_ratio: float
     mojibake_ratio: float
@@ -107,6 +108,12 @@ class TextQualityReport:
     def is_usable(self) -> bool:
         if self.char_count < 80:
             return True
+        if (
+            self.language == "lo"
+            and self.char_count >= 300
+            and (self.thai_ratio >= 0.15 or self.thai_ratio > max(0.05, self.lao_ratio * 0.45))
+        ):
+            return False
         return self.score >= 0.58 and self.mojibake_ratio <= 0.12
 
     @property
@@ -119,6 +126,7 @@ class TextQualityReport:
             "language": self.language,
             "char_count": self.char_count,
             "lao_ratio": round(self.lao_ratio, 3),
+            "thai_ratio": round(self.thai_ratio, 3),
             "latin_ratio": round(self.latin_ratio, 3),
             "symbol_ratio": round(self.symbol_ratio, 3),
             "mojibake_ratio": round(self.mojibake_ratio, 3),
@@ -151,7 +159,13 @@ class LegalDocumentIngestionService:
             )
 
         title = item.title or _title_from_filename(item.filename)
-        extracted_text = extract_text_with_metadata(item.content, item.content_type, item.filename)
+        extracted_text = extract_text_with_metadata(
+            item.content,
+            item.content_type,
+            item.filename,
+            jurisdiction=item.jurisdiction,
+            language_hint=item.language,
+        )
         text = extracted_text.text
         warnings: list[str] = list(extracted_text.warnings)
         if len(text.strip()) < 20:
@@ -514,7 +528,14 @@ def extract_text(content: bytes, content_type: str, filename: str) -> str:
     return extract_text_with_metadata(content, content_type, filename).text
 
 
-def extract_text_with_metadata(content: bytes, content_type: str, filename: str) -> ExtractedLegalText:
+def extract_text_with_metadata(
+    content: bytes,
+    content_type: str,
+    filename: str,
+    *,
+    jurisdiction: str | None = None,
+    language_hint: str | None = None,
+) -> ExtractedLegalText:
     lower_name = filename.lower()
 
     if content_type in {"text/plain", "text/markdown"} or lower_name.endswith((".txt", ".md")):
@@ -529,7 +550,7 @@ def extract_text_with_metadata(content: bytes, content_type: str, filename: str)
         )
 
     if content_type == "application/pdf" or lower_name.endswith(".pdf"):
-        return _extract_pdf(content)
+        return _extract_pdf(content, jurisdiction=jurisdiction, language_hint=language_hint)
 
     if (
         content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -570,6 +591,7 @@ SECTION_HEADING_RE = re.compile(
 )
 
 
+THAI_BLOCK_RE = re.compile(r"[\u0e00-\u0e7f]")
 LAO_BLOCK_RE = re.compile(r"[\u0e80-\u0eff]")
 LATIN_TOKEN_RE = re.compile(r"\b[A-Za-z]{2,}\b")
 REPEATED_SYMBOL_RUN_RE = re.compile(r"(?:\. ?){6,}|[-_]{8,}|[\"'“”+]{4,}|[=|<>\\/]{4,}")
@@ -704,6 +726,7 @@ def assess_lao_legal_text_quality(text: str) -> TextQualityReport:
             language="unknown",
             char_count=0,
             lao_ratio=0.0,
+            thai_ratio=0.0,
             latin_ratio=0.0,
             symbol_ratio=0.0,
             mojibake_ratio=0.0,
@@ -715,12 +738,13 @@ def assess_lao_legal_text_quality(text: str) -> TextQualityReport:
 
     char_count = len(chars)
     lao_count = len(LAO_BLOCK_RE.findall(sample))
+    thai_count = len(THAI_BLOCK_RE.findall(sample))
     latin_count = sum(1 for ch in chars if "A" <= ch <= "Z" or "a" <= ch <= "z")
     mojibake_count = len(MOJIBAKE_CHAR_RE.findall(sample))
     symbol_count = sum(
         1
         for ch in chars
-        if not ch.isalnum() and not ("\u0e80" <= ch <= "\u0eff")
+        if not ch.isalnum() and not ("\u0e00" <= ch <= "\u0eff")
     )
     repeated_symbol_runs = len(REPEATED_SYMBOL_RUN_RE.findall(sample))
     legal_marker_count = len(LAO_LEGAL_MARKER_RE.findall(sample))
@@ -734,27 +758,39 @@ def assess_lao_legal_text_quality(text: str) -> TextQualityReport:
         ])
 
     lao_ratio = lao_count / char_count
+    thai_ratio = thai_count / char_count
     latin_ratio = latin_count / char_count
     symbol_ratio = symbol_count / char_count
     mojibake_ratio = mojibake_count / char_count
+    looks_thai = thai_ratio > 0.10 and lao_ratio < 0.08
 
     score = 1.0
     score -= min(0.70, mojibake_ratio * 2.2)
     score -= min(0.38, repeated_symbol_runs * 0.035)
     score -= min(0.30, max(0.0, symbol_ratio - 0.25) * 1.4)
     if looks_lao:
+        score -= min(0.45, max(0.0, thai_ratio - 0.015) * 3.0)
+        if thai_ratio > max(0.05, lao_ratio * 0.35) and char_count > 250:
+            score -= 0.12
         score -= min(0.35, max(0.0, latin_ratio - 0.08) * 1.8)
         score -= min(0.28, suspicious_latin_tokens / 90)
         if lao_ratio < 0.22 and char_count > 500:
             score -= 0.12
         if legal_marker_count == 0 and char_count > 700:
             score -= 0.08
+    elif looks_thai:
+        score -= min(0.25, max(0.0, latin_ratio - 0.08) * 1.2)
     elif latin_ratio < 0.18 and char_count > 500:
         score -= 0.08
 
     score += min(0.08, legal_marker_count * 0.01)
     score = max(0.0, min(1.0, score))
-    language = "lo" if looks_lao else "en"
+    if looks_lao:
+        language = "lo"
+    elif looks_thai:
+        language = "th"
+    else:
+        language = "en"
 
     warnings: list[str] = []
     if mojibake_ratio > 0.03:
@@ -763,6 +799,12 @@ def assess_lao_legal_text_quality(text: str) -> TextQualityReport:
         warnings.append("Text contains many repeated symbol runs; PDF table-of-contents or scan artifacts may remain.")
     if looks_lao and suspicious_latin_tokens >= 10:
         warnings.append("Lao text contains many unexpected Latin OCR tokens.")
+    if looks_lao and thai_ratio >= 0.02 and char_count >= 80:
+        warnings.append(
+            "Lao text contains Thai-script characters; OCR may have used Thai language data."
+        )
+    if looks_lao and thai_ratio > max(0.05, lao_ratio * 0.35) and char_count > 250:
+        warnings.append("Thai-script contamination is high for a Lao legal document.")
     if looks_lao and lao_ratio < 0.22 and char_count > 500:
         warnings.append("Lao character coverage is low for a Lao legal document.")
     if score < PREFERRED_PDF_TEXT_QUALITY:
@@ -773,6 +815,7 @@ def assess_lao_legal_text_quality(text: str) -> TextQualityReport:
         language=language,
         char_count=char_count,
         lao_ratio=lao_ratio,
+        thai_ratio=thai_ratio,
         latin_ratio=latin_ratio,
         symbol_ratio=symbol_ratio,
         mojibake_ratio=mojibake_ratio,
@@ -803,14 +846,31 @@ def _build_extraction_candidate(method: str, raw_text: str, *, source: str) -> _
 def _choose_best_candidate(candidates: list[_ExtractionCandidate]) -> _ExtractionCandidate | None:
     if not candidates:
         return None
-    return max(
-        candidates,
-        key=lambda candidate: (
-            candidate.quality.score,
-            candidate.quality.legal_marker_count,
-            len(candidate.text),
-        ),
+    return max(candidates, key=_extraction_candidate_rank)
+
+
+def _extraction_candidate_rank(candidate: _ExtractionCandidate) -> tuple[float, int, int, int]:
+    adjusted_score = candidate.quality.score - _thai_contamination_penalty(candidate.quality)
+    method_priority = {
+        "pymupdf_text_layer": 3,
+        "pypdf_text_layer": 2,
+        "tesseract_ocr": 1,
+    }.get(candidate.method, 0)
+    return (
+        adjusted_score,
+        candidate.quality.legal_marker_count,
+        method_priority,
+        len(candidate.text),
     )
+
+
+def _thai_contamination_penalty(quality: TextQualityReport) -> float:
+    if quality.language != "lo":
+        return 0.0
+    penalty = max(0.0, quality.thai_ratio - 0.015) * 1.8
+    if quality.thai_ratio > max(0.05, quality.lao_ratio * 0.35) and quality.char_count > 250:
+        penalty += 0.12
+    return min(0.35, penalty)
 
 
 def chunk_text(text: str, *, max_chars: int = 3200, overlap: int = 300) -> list[str]:
@@ -1017,7 +1077,12 @@ def _trim_chunk_text(text: str) -> str:
     return trimmed.strip()
 
 
-def _extract_pdf(content: bytes) -> ExtractedLegalText:
+def _extract_pdf(
+    content: bytes,
+    *,
+    jurisdiction: str | None = None,
+    language_hint: str | None = None,
+) -> ExtractedLegalText:
     errors: list[str] = []
     settings = get_settings()
     candidates: list[_ExtractionCandidate] = []
@@ -1068,7 +1133,12 @@ def _extract_pdf(content: bytes) -> ExtractedLegalText:
 
     ocr_error_start = len(errors)
     if should_try_ocr:
-        text = _extract_pdf_with_ocr(content, errors=errors)
+        text = _extract_pdf_with_ocr(
+            content,
+            errors=errors,
+            jurisdiction=jurisdiction,
+            language_hint=language_hint,
+        )
         candidate = _build_extraction_candidate("tesseract_ocr", text, source="pdf")
         if candidate:
             candidates.append(candidate)
@@ -1113,7 +1183,7 @@ def _extract_pdf(content: bytes) -> ExtractedLegalText:
     }
     raise UnsupportedFileTypeError(
         "PDF text extraction failed. The PDF text layer appears scanned, missing, or garbled. "
-        "Install Tesseract OCR with Lao/Thai language data, increase OCR quality, "
+        "Install Tesseract OCR with the document jurisdiction's language data, increase OCR quality, "
         "or upload a Unicode text-searchable PDF.",
         details=details,
     )
@@ -1130,6 +1200,8 @@ def _looks_like_garbled_pdf_text(text: str) -> bool:
         return True
     if quality.score < MIN_PDF_TEXT_QUALITY:
         return True
+    if quality.language == "lo" and quality.thai_ratio >= 0.06 and quality.char_count > 250:
+        return True
     if (
         quality.language == "lo"
         and quality.needs_review
@@ -1137,6 +1209,7 @@ def _looks_like_garbled_pdf_text(text: str) -> bool:
             quality.repeated_symbol_runs >= 3
             or quality.suspicious_latin_tokens >= 8
             or (quality.lao_ratio < 0.18 and quality.char_count > 500)
+            or quality.thai_ratio >= 0.025
             or quality.symbol_ratio > 0.42
         )
     ):
@@ -1146,9 +1219,14 @@ def _looks_like_garbled_pdf_text(text: str) -> bool:
     if replacement_ratio > 0.01:
         return True
 
-    lao_thai = sum(1 for ch in chars if ("\u0e00" <= ch <= "\u0eff"))
-    lao_thai_ratio = lao_thai / len(chars)
-    if lao_thai_ratio > 0.08 and quality.score >= PREFERRED_PDF_TEXT_QUALITY:
+    if (
+        quality.language == "lo"
+        and quality.lao_ratio > 0.08
+        and quality.thai_ratio < 0.025
+        and quality.score >= PREFERRED_PDF_TEXT_QUALITY
+    ):
+        return False
+    if quality.language == "th" and quality.score >= PREFERRED_PDF_TEXT_QUALITY:
         return False
 
     suspicious = 0
@@ -1177,7 +1255,13 @@ def _looks_like_garbled_pdf_text(text: str) -> bool:
     return bool(suspicious_ratio > 0.28 and extended_tokens >= 20)
 
 
-def _extract_pdf_with_ocr(content: bytes, *, errors: list[str]) -> str:
+def _extract_pdf_with_ocr(
+    content: bytes,
+    *,
+    errors: list[str],
+    jurisdiction: str | None = None,
+    language_hint: str | None = None,
+) -> str:
     try:
         import fitz
     except ModuleNotFoundError:
@@ -1198,7 +1282,12 @@ def _extract_pdf_with_ocr(content: bytes, *, errors: list[str]) -> str:
 
     settings = get_settings()
     _configure_tesseract(pytesseract, errors=errors)
-    ocr_language = _resolve_tesseract_languages(pytesseract, errors=errors)
+    ocr_language = _resolve_tesseract_languages(
+        pytesseract,
+        errors=errors,
+        jurisdiction=jurisdiction,
+        language_hint=language_hint,
+    )
     if not ocr_language:
         return ""
 
@@ -1270,7 +1359,13 @@ def _configure_tesseract(pytesseract: Any, *, errors: list[str]) -> None:
         os.environ["TESSDATA_PREFIX"] = tessdata_prefix
 
 
-def _resolve_tesseract_languages(pytesseract: Any, *, errors: list[str]) -> str:
+def _resolve_tesseract_languages(
+    pytesseract: Any,
+    *,
+    errors: list[str],
+    jurisdiction: str | None = None,
+    language_hint: str | None = None,
+) -> str:
     requested = [
         part.strip()
         for part in (get_settings().pdf_ocr_languages or "eng").split("+")
@@ -1278,27 +1373,105 @@ def _resolve_tesseract_languages(pytesseract: Any, *, errors: list[str]) -> str:
     ]
     if not requested:
         requested = ["eng"]
+    selected = _select_ocr_languages(
+        requested,
+        jurisdiction=jurisdiction,
+        language_hint=language_hint,
+    )
+    skipped = [language for language in requested if language not in selected]
+    if skipped and ("tha" in skipped or "lao" in skipped):
+        errors.append(
+            "OCR language list was narrowed to "
+            + "+".join(selected)
+            + " for jurisdiction/language context; skipped: "
+            + ", ".join(skipped)
+            + "."
+        )
 
     try:
         available = set(pytesseract.get_languages(config=""))
     except Exception as exc:
         errors.append(f"Could not inspect Tesseract language data: {exc}")
-        return "+".join(requested)
+        return "+".join(selected)
 
-    usable = [language for language in requested if language in available]
-    missing = [language for language in requested if language not in available]
+    usable = [language for language in selected if language in available]
+    missing = [language for language in selected if language not in available]
     if missing:
         errors.append(
             "Tesseract language data missing for: "
             + ", ".join(missing)
             + ". Install the traineddata files or set TESSDATA_PREFIX to the project tessdata directory."
         )
+    if _requires_ocr_language("lao", jurisdiction=jurisdiction, language_hint=language_hint) and "lao" not in usable:
+        errors.append("Lao OCR language data is required for Lao legal documents; refusing wrong-language OCR.")
+        return ""
+    if _requires_ocr_language("tha", jurisdiction=jurisdiction, language_hint=language_hint) and "tha" not in usable:
+        errors.append("Thai OCR language data is required for Thai legal documents; refusing wrong-language OCR.")
+        return ""
     if not usable:
         errors.append(
             "No requested OCR languages are available; refusing to OCR with the wrong language model."
         )
         return ""
     return "+".join(usable)
+
+
+def _select_ocr_languages(
+    requested: list[str],
+    *,
+    jurisdiction: str | None = None,
+    language_hint: str | None = None,
+) -> list[str]:
+    canonical = canonical_jurisdiction(jurisdiction)
+    normalized_hint = _normalize_language_hint(language_hint)
+
+    if normalized_hint == "lo" or canonical == "laos":
+        return _dedupe_languages(["lao", "eng", *_other_requested_ocr_languages(requested)])
+    if normalized_hint == "th" or canonical == "thailand":
+        return _dedupe_languages(["tha", "eng", *_other_requested_ocr_languages(requested)])
+    if normalized_hint == "en":
+        return _dedupe_languages(["eng", *_other_requested_ocr_languages(requested)])
+    return _dedupe_languages(requested or ["eng"])
+
+
+def _other_requested_ocr_languages(requested: list[str]) -> list[str]:
+    return [language for language in requested if language not in {"lao", "tha", "eng"}]
+
+
+def _requires_ocr_language(
+    language: str,
+    *,
+    jurisdiction: str | None = None,
+    language_hint: str | None = None,
+) -> bool:
+    canonical = canonical_jurisdiction(jurisdiction)
+    normalized_hint = _normalize_language_hint(language_hint)
+    return (
+        (language == "lao" and (normalized_hint == "lo" or canonical == "laos"))
+        or (language == "tha" and (normalized_hint == "th" or canonical == "thailand"))
+    )
+
+
+def _normalize_language_hint(language_hint: str | None) -> str | None:
+    if not language_hint:
+        return None
+    normalized = language_hint.strip().casefold().replace("_", "-")
+    if normalized in {"lo", "la", "lao", "laos", "lao-pdr"}:
+        return "lo"
+    if normalized in {"th", "tha", "thai", "thailand"}:
+        return "th"
+    if normalized in {"en", "eng", "english"}:
+        return "en"
+    return normalized or None
+
+
+def _dedupe_languages(languages: list[str]) -> list[str]:
+    deduped: list[str] = []
+    for language in languages:
+        normalized = language.strip()
+        if normalized and normalized not in deduped:
+            deduped.append(normalized)
+    return deduped or ["eng"]
 
 
 def _default_tesseract_cmd() -> str | None:
