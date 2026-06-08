@@ -90,6 +90,26 @@ class LegalTextChunk:
 
 
 @dataclass(frozen=True)
+class LegalStructureReport:
+    article_count: int
+    max_article_number: int | None
+    missing_articles: tuple[str, ...] = ()
+    duplicate_sections: tuple[str, ...] = ()
+    out_of_order_sections: int = 0
+    warnings: tuple[str, ...] = ()
+
+    def to_metadata(self) -> dict[str, Any]:
+        return {
+            "article_count": self.article_count,
+            "max_article_number": self.max_article_number,
+            "missing_articles": list(self.missing_articles),
+            "duplicate_sections": list(self.duplicate_sections),
+            "out_of_order_sections": self.out_of_order_sections,
+            "warnings": list(self.warnings),
+        }
+
+
+@dataclass(frozen=True)
 class TextQualityReport:
     score: float
     language: str
@@ -202,6 +222,8 @@ class LegalDocumentIngestionService:
             max_chars=self._settings.rag_chunk_max_chars,
             overlap=self._settings.rag_chunk_overlap_chars,
         )
+        structure = assess_legal_structure(chunks)
+        warnings.extend(structure.warnings)
         embedding = await self._embed_text(text, jurisdiction=item.jurisdiction)
         source_table = _source_table(item.document_type)
         law_category = normalise_lao_law_category(item.law_category)
@@ -244,6 +266,7 @@ class LegalDocumentIngestionService:
             chunks=chunks,
             extraction=extracted_text,
             legal_metadata=legal_metadata,
+            legal_structure=structure,
         )
         chunk_embedding = await self._embed_chunks(chunks, jurisdiction=item.jurisdiction)
         chunks_indexed, chunk_index_warnings = await self._insert_chunks(
@@ -383,8 +406,14 @@ class LegalDocumentIngestionService:
         chunks: list[LegalTextChunk],
         extraction: ExtractedLegalText,
         legal_metadata: dict[str, Any],
+        legal_structure: LegalStructureReport,
     ) -> str:
         law_category = normalise_lao_law_category(item.law_category)
+        document_article = _document_article_metadata(
+            explicit_article=item.article,
+            inferred_article=legal_metadata.get("article"),
+            chunks=chunks,
+        )
         metadata = {
             "file_name": item.filename,
             "content_type": item.content_type,
@@ -394,7 +423,7 @@ class LegalDocumentIngestionService:
             "language": item.language or legal_metadata.get("language"),
             "law_category": law_category,
             "law_no": item.law_no or legal_metadata.get("law_no"),
-            "article": item.article or legal_metadata.get("article"),
+            "article": document_article,
             "gazette_date": item.gazette_date or legal_metadata.get("gazette_date"),
             "effective_date": item.effective_date or legal_metadata.get("effective_date"),
             "review_status": item.review_status,
@@ -402,6 +431,7 @@ class LegalDocumentIngestionService:
             "text_length": len(text),
             "extraction_method": extraction.method,
             "text_quality": extraction.quality.to_metadata(),
+            "legal_structure": legal_structure.to_metadata(),
             "extraction_warnings": extraction.warnings,
             "ingestion_version": INGESTION_PIPELINE_VERSION,
         }
@@ -456,10 +486,15 @@ class LegalDocumentIngestionService:
         status = _active_status_for_review(item.review_status)
         language = item.language or legal_metadata.get("language") or extraction.quality.language
         law_no = item.law_no or legal_metadata.get("law_no")
-        article = item.article or legal_metadata.get("article")
+        document_article = item.article or legal_metadata.get("article")
         for chunk in chunks:
             embedding = embeddings[chunk.index] if chunk.index < len(embeddings) else None
             chunk_quality = assess_lao_legal_text_quality(chunk.content)
+            chunk_article, chunk_article_source = _chunk_article_metadata(
+                chunk,
+                document_article=document_article,
+                total_chunks=len(chunks),
+            )
             payloads.append({
                 "tenant_id": item.tenant_id,
                 "source_table": source_table,
@@ -472,7 +507,7 @@ class LegalDocumentIngestionService:
                 "section_ref": chunk.section_ref,
                 "chapter_ref": _chapter_ref_from_section(chunk.section_ref),
                 "law_no": law_no,
-                "article": article or _article_from_section(chunk.section_ref),
+                "article": chunk_article,
                 "language": language,
                 "content": chunk.content,
                 "token_count": chunk.token_count,
@@ -484,7 +519,9 @@ class LegalDocumentIngestionService:
                     "tags": item.tags,
                     "law_category": law_category,
                     "law_no": law_no,
-                    "article": article or _article_from_section(chunk.section_ref),
+                    "article": chunk_article,
+                    "article_source": chunk_article_source,
+                    "document_article": document_article,
                     "language": language,
                     "extraction_method": extraction.method,
                     "document_text_quality": extraction.quality.to_metadata(),
@@ -583,11 +620,21 @@ def extract_text_with_metadata(
     raise UnsupportedFileTypeError(f"Unsupported legal document type '{content_type}'.")
 
 
+ARTICLE_LABEL_PATTERN = (
+    r"(?:มาตรา|ມາດຕາ|Article|Art\.?|Section|Sec\.?)"
+)
+
 SECTION_HEADING_RE = re.compile(
     r"(?im)^(?P<section>"
     r"(?:มาตรา|ข้อ|หมวด|บทที่|ມາດຕາ|ຂໍ້|ຫມວດ|ໝວດ|ພາກ|ບົດທີ|Article|Art\.|Section|Sec\.|Chapter|Part)"
     r"\s+[0-9A-Za-zก-๙ກ-ຮ./-]+"
     r")"
+)
+SPLIT_ARTICLE_NUMBER_RE = re.compile(
+    rf"(?im)^(\s*{ARTICLE_LABEL_PATTERN}[ \t]+)([1-9])[ \t]+([0-9]{{2,3}})(?=[ \t]+[^\d\s]|[ \t]*$)"
+)
+ARTICLE_REF_RE = re.compile(
+    rf"(?i){ARTICLE_LABEL_PATTERN}\s*([0-9A-Za-zก-๙ກ-ຮ./-]+)"
 )
 
 
@@ -636,10 +683,23 @@ def normalise_lao_legal_text(text: str, *, source: str | None = None) -> str:
     normalized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", " ", normalized)
     if source == "pdf":
         normalized = _drop_pdf_artifact_lines(normalized)
+    normalized = _repair_split_article_heading_numbers(normalized)
     normalized = re.sub(r"[ \t]+", " ", normalized)
     normalized = re.sub(r"\n[ \t]+", "\n", normalized)
     normalized = re.sub(r"\n{3,}", "\n\n", normalized)
     return normalized.strip()
+
+
+def _repair_split_article_heading_numbers(text: str) -> str:
+    """Repair OCR headings like 'ມາດຕາ 1 14' so section parsing sees article 114."""
+
+    def replace(match: re.Match[str]) -> str:
+        number = f"{match.group(2)}{match.group(3)}"
+        if int(number) > 999:
+            return match.group(0)
+        return f"{match.group(1)}{number}"
+
+    return SPLIT_ARTICLE_NUMBER_RE.sub(replace, text or "")
 
 
 def _decode_text_bytes(content: bytes) -> tuple[str, list[str]]:
@@ -875,6 +935,59 @@ def _thai_contamination_penalty(quality: TextQualityReport) -> float:
 
 def chunk_text(text: str, *, max_chars: int = 3200, overlap: int = 300) -> list[str]:
     return [chunk.content for chunk in chunk_legal_text(text, max_chars=max_chars, overlap=overlap)]
+
+
+def assess_legal_structure(chunks: list[LegalTextChunk]) -> LegalStructureReport:
+    articles: list[int] = []
+    section_refs: list[str] = []
+
+    for chunk in chunks:
+        section_ref = chunk.section_ref or ""
+        if not section_ref or section_ref == "Preamble":
+            continue
+        article = _article_number_as_int(_article_from_section(section_ref))
+        if article is None:
+            continue
+        articles.append(article)
+        section_refs.append(section_ref)
+
+    unique_articles = _ordered_unique_ints(articles)
+    max_article = max(unique_articles) if unique_articles else None
+    missing: list[str] = []
+    if max_article and max_article <= 1000:
+        article_set = set(unique_articles)
+        missing = [str(number) for number in range(1, max_article + 1) if number not in article_set]
+
+    duplicate_sections = _duplicate_values(section_refs)
+    out_of_order = sum(
+        1
+        for previous, current in zip(articles, articles[1:], strict=False)
+        if current < previous
+    )
+
+    warnings: list[str] = []
+    if missing:
+        warnings.append(
+            "Legal article sequence appears to have missing headings: "
+            f"{', '.join(missing[:30])}{'...' if len(missing) > 30 else ''}."
+        )
+    if duplicate_sections:
+        warnings.append(
+            "Legal article headings appear more than once; review OCR/chunking before approval."
+        )
+    if out_of_order:
+        warnings.append(
+            "Legal article headings are out of order; scanned PDF OCR may have mixed columns or amendments."
+        )
+
+    return LegalStructureReport(
+        article_count=len(unique_articles),
+        max_article_number=max_article,
+        missing_articles=tuple(missing),
+        duplicate_sections=tuple(duplicate_sections[:50]),
+        out_of_order_sections=out_of_order,
+        warnings=tuple(warnings),
+    )
 
 
 def chunk_legal_text(text: str, *, max_chars: int = 2600, overlap: int = 350) -> list[LegalTextChunk]:
@@ -1556,11 +1669,84 @@ def _chapter_ref_from_section(section_ref: str | None) -> str | None:
 def _article_from_section(section_ref: str | None) -> str | None:
     if not section_ref:
         return None
-    match = re.search(
-        r"(?i)(?:article|art\.?|section|sec\.?|มาตรา|ມາດຕາ)\s*([0-9A-Za-zก-๙ກ-ຮ./-]+)",
-        section_ref,
+    repaired = _repair_split_article_heading_numbers(section_ref)
+    match = ARTICLE_REF_RE.search(repaired)
+    if not match:
+        return None
+    return match.group(1).strip().rstrip(".,;:)")
+
+
+def _chunk_article_metadata(
+    chunk: LegalTextChunk,
+    *,
+    document_article: str | None,
+    total_chunks: int,
+) -> tuple[str | None, str | None]:
+    section_article = _article_from_section(chunk.section_ref)
+    if section_article and chunk.section_ref != "Preamble":
+        return section_article, "section_ref"
+
+    content_article = None if chunk.section_ref == "Preamble" else _article_from_section(chunk.content)
+    if content_article:
+        return content_article, "content"
+
+    if total_chunks == 1 and document_article:
+        return document_article, "document"
+    return None, None
+
+
+def _document_article_metadata(
+    *,
+    explicit_article: str | None,
+    inferred_article: str | None,
+    chunks: list[LegalTextChunk],
+) -> str | None:
+    explicit_article = (explicit_article or "").strip()
+    if explicit_article:
+        return explicit_article
+
+    article_numbers = _ordered_unique_ints(
+        _article_number_as_int(_article_from_section(chunk.section_ref))
+        for chunk in chunks
+        if chunk.section_ref and chunk.section_ref != "Preamble"
     )
-    return match.group(1).strip() if match else None
+    if len(article_numbers) > 1:
+        return None
+    if len(article_numbers) == 1:
+        return str(article_numbers[0])
+
+    inferred_article = (inferred_article or "").strip()
+    return inferred_article or None
+
+
+def _article_number_as_int(article: str | None) -> int | None:
+    if not article:
+        return None
+    match = re.match(r"0*([0-9]{1,4})(?:\D|$)", article.strip())
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def _ordered_unique_ints(values: Any) -> list[int]:
+    ordered: list[int] = []
+    seen: set[int] = set()
+    for value in values:
+        if value is None or value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered
+
+
+def _duplicate_values(values: list[str]) -> list[str]:
+    counts: dict[str, int] = {}
+    duplicates: list[str] = []
+    for value in values:
+        counts[value] = counts.get(value, 0) + 1
+        if counts[value] == 2:
+            duplicates.append(value)
+    return duplicates
 
 
 def _title_from_filename(filename: str) -> str:

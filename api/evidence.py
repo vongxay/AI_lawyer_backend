@@ -12,8 +12,9 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 from agents.evidence_agent import EvidenceFile
 from api.dependencies import WorkflowDep
 from api.schemas import EvidenceAnalysisResponse
+from api.upload_utils import read_upload_with_limit, upload_limit_bytes
 from core.config import get_settings
-from core.exceptions import FileTooLargeError, UnsupportedFileTypeError
+from core.exceptions import UnsupportedFileTypeError
 from core.security import CurrentUser, require_roles
 
 router = APIRouter(prefix="/api/v1/evidence", tags=["evidence"])
@@ -43,10 +44,7 @@ async def analyze_evidence(
                 details={"allowed": sorted(settings.allowed_mime_types)},
             )
 
-        content = await upload.read()
-        size_mb = len(content) / (1024 * 1024)
-        if size_mb > settings.max_upload_size_mb:
-            raise FileTooLargeError(f"'{upload.filename}' ({size_mb:.1f}MB) exceeds limit")
+        content = await read_upload_with_limit(upload, max_bytes=upload_limit_bytes(settings))
 
         evidence_files.append(EvidenceFile(
             filename=upload.filename or "unnamed",

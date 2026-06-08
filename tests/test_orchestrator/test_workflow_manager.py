@@ -160,7 +160,7 @@ class TestWorkflowManager:
         research_call = workflow._research_agent.run.call_args
         clean_question = research_call.kwargs["question"]
         assert "0812345678" not in clean_question
-        assert "[REDACTED_PHONE_TH]" in clean_question
+        assert "[REDACTED_PHONE]" in clean_question
 
     async def test_risk_agent_invoked_for_case_strategy(self, workflow):
         """case_strategy queries should invoke risk agent."""

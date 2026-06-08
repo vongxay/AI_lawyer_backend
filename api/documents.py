@@ -11,8 +11,9 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 
 from api.dependencies import WorkflowDep
 from api.schemas import DocumentAnalysisResponse
+from api.upload_utils import read_upload_with_limit, upload_limit_bytes
 from core.config import get_settings
-from core.exceptions import FileTooLargeError, UnsupportedFileTypeError
+from core.exceptions import UnsupportedFileTypeError
 from core.security import CurrentUser, require_roles
 from services.ingestion_service import extract_text
 
@@ -41,12 +42,7 @@ async def analyze_document(
             details={"allowed": sorted(settings.allowed_mime_types)},
         )
 
-    content = await file.read()
-    size_mb = len(content) / (1024 * 1024)
-    if size_mb > settings.max_upload_size_mb:
-        raise FileTooLargeError(
-            f"File size {size_mb:.1f}MB exceeds limit of {settings.max_upload_size_mb}MB"
-        )
+    content = await read_upload_with_limit(file, max_bytes=upload_limit_bytes(settings))
 
     document_text = extract_text(content, content_type, file.filename or "uploaded-document")
 

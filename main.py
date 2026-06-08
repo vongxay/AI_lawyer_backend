@@ -42,6 +42,7 @@ from api import knowledge as knowledge_router
 from api import legal as legal_router
 from api import memory as memory_router
 from api import users as users_router
+from api.upload_utils import request_body_limit_bytes
 from core.config import get_settings
 from core.database import close_connections, ping_redis, ping_supabase
 from core.exceptions import register_exception_handlers
@@ -130,7 +131,7 @@ async def _security_headers_middleware(request: Request, call_next):
 
 async def _body_size_limit_middleware(request: Request, call_next):
     settings = get_settings()
-    limit_bytes = settings.max_request_body_mb * 1024 * 1024
+    limit_bytes = request_body_limit_bytes(settings)
     content_length = request.headers.get("content-length")
 
     if content_length:

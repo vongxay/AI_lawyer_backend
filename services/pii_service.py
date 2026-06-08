@@ -50,6 +50,9 @@ class PiiService:
         ("IP_ADDRESS",    re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")),
         ("CREDIT_CARD",   re.compile(r"\b(?:\d[ \-]?){13,16}\b")),
     ]
+    _REDACTION_LABELS = {
+        "PHONE_TH": "PHONE",
+    }
 
     def redact(self, text: str) -> RedactionResult:
         result = text
@@ -61,7 +64,8 @@ class PiiService:
             if matches:
                 found_types.append(pii_type)
                 total_count += len(matches)
-                result = pattern.sub(f"[REDACTED_{pii_type}]", result)
+                label = self._REDACTION_LABELS.get(pii_type, pii_type)
+                result = pattern.sub(f"[REDACTED_{label}]", result)
 
         if found_types:
             log.info(

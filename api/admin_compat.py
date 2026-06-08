@@ -16,8 +16,10 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 
+from api.upload_utils import read_upload_with_limit, upload_limit_bytes
 from core.config import get_settings
 from core.database import get_supabase, ping_redis, ping_supabase
+from core.exceptions import FileTooLargeError
 from core.logging import get_logger
 from core.security import CurrentUser, get_admin_user
 
@@ -1609,16 +1611,15 @@ async def _store_admin_upload(
             detail=f"Unsupported {kind} file type: {content_type}.",
         )
 
-    content = await file.read()
-    if not content:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty.")
-
-    max_bytes = settings.max_upload_size_mb * 1024 * 1024
-    if len(content) > max_bytes:
+    try:
+        content = await read_upload_with_limit(file, max_bytes=upload_limit_bytes(settings))
+    except FileTooLargeError as exc:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"Uploaded file exceeds {settings.max_upload_size_mb}MB limit.",
-        )
+            detail=exc.message,
+        ) from exc
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty.")
 
     stored_name = _safe_file_name(title or original_name)
     object_path = _storage_file_path(tenant_id, kind, original_name)

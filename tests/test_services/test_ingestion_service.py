@@ -2,11 +2,14 @@ import services.ingestion_service as ingestion_service
 from services.ingestion_service import (
     _build_extraction_candidate,
     _choose_best_candidate,
+    _chunk_article_metadata,
+    _document_article_metadata,
     _is_official_lao_source,
     _looks_like_garbled_pdf_text,
     _resolve_tesseract_languages,
     _source_authority,
     assess_lao_legal_text_quality,
+    assess_legal_structure,
     chunk_legal_text,
     extract_text_with_metadata,
     normalise_lao_legal_text,
@@ -158,6 +161,60 @@ def test_chunking_keeps_heading_with_long_lao_article_body() -> None:
     assert chunks[0].content.startswith(f"{heading}\n\n")
     assert chunks[0].content != heading
     assert all(chunk.content != heading for chunk in chunks)
+
+
+def test_chunking_repairs_split_lao_article_numbers_from_ocr() -> None:
+    text = "\n".join([
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 1 14 \u0e81\u0eb2\u0e99\u0e9b\u0ead\u0e87\u0eae\u0ec9\u0eb2\u0e8d",
+        "\u0e9a\u0eb8\u0e81\u0e84\u0ebb\u0e99\u0ec3\u0e94 "
+        "\u0e97\u0eb5\u0ec8\u0e81\u0eb0\u0e97\u0eb3\u0e9c\u0eb4\u0e94.",
+    ])
+
+    chunks = chunk_legal_text(text)
+
+    assert chunks[0].section_ref == "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 114"
+    assert chunks[0].content.startswith("\u0ea1\u0eb2\u0e94\u0e95\u0eb2 114")
+
+
+def test_chunk_article_metadata_prefers_each_chunk_section_over_document_article() -> None:
+    chunks = chunk_legal_text("\n\n".join([
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 1\n\u0e82\u0ecd\u0ec9\u0e84\u0ea7\u0eb2\u0ea1",
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 2\n\u0e82\u0ecd\u0ec9\u0e84\u0ea7\u0eb2\u0ea1",
+    ]))
+
+    first_article, first_source = _chunk_article_metadata(chunks[0], document_article="67", total_chunks=len(chunks))
+    second_article, second_source = _chunk_article_metadata(chunks[1], document_article="67", total_chunks=len(chunks))
+
+    assert (first_article, first_source) == ("1", "section_ref")
+    assert (second_article, second_source) == ("2", "section_ref")
+
+
+def test_document_article_metadata_omits_inferred_article_for_multi_article_code() -> None:
+    chunks = chunk_legal_text("\n\n".join([
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 1\n\u0e82\u0ecd\u0ec9\u0e84\u0ea7\u0eb2\u0ea1",
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 2\n\u0e82\u0ecd\u0ec9\u0e84\u0ea7\u0eb2\u0ea1",
+    ]))
+
+    article = _document_article_metadata(explicit_article=None, inferred_article="67", chunks=chunks)
+
+    assert article is None
+
+
+def test_legal_structure_flags_missing_duplicate_and_out_of_order_articles() -> None:
+    chunks = chunk_legal_text("\n\n".join([
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 1\n\u0e82\u0ecd\u0ec9\u0e84\u0ea7\u0eb2\u0ea1",
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 3\n\u0e82\u0ecd\u0ec9\u0e84\u0ea7\u0eb2\u0ea1",
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 2\n\u0e82\u0ecd\u0ec9\u0e84\u0ea7\u0eb2\u0ea1",
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 2\n\u0e82\u0ecd\u0ec9\u0e84\u0ea7\u0eb2\u0ea1\u0e8a\u0ecd\u0ec9\u0eb2",
+    ]))
+
+    report = assess_legal_structure(chunks)
+
+    assert report.article_count == 3
+    assert report.max_article_number == 3
+    assert report.out_of_order_sections == 1
+    assert "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 2" in report.duplicate_sections
+    assert any("out of order" in warning for warning in report.warnings)
 
 
 def test_quality_prefers_clean_lao_legal_text() -> None:

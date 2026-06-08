@@ -24,10 +24,11 @@ from api.schemas import (
     LegalQueryResponse,
     VerifyCitationsRequest,
 )
+from api.upload_utils import read_upload_with_limit, upload_limit_bytes
 from agents.evidence_agent import EvidenceFile
 from core.config import get_settings
 from core.database import get_supabase
-from core.exceptions import FileTooLargeError, UnsupportedFileTypeError
+from core.exceptions import UnsupportedFileTypeError
 from core.jurisdiction import infer_response_language
 from core.logging import get_logger
 from core.security import CurrentUser, require_roles
@@ -89,10 +90,7 @@ async def legal_query_with_files(
                 details={"allowed": sorted(settings.allowed_mime_types)},
             )
 
-        content = await upload.read()
-        size_mb = len(content) / (1024 * 1024)
-        if size_mb > settings.max_upload_size_mb:
-            raise FileTooLargeError(f"'{upload.filename}' ({size_mb:.1f}MB) exceeds limit")
+        content = await read_upload_with_limit(upload, max_bytes=upload_limit_bytes(settings))
 
         evidence_files.append(
             EvidenceFile(

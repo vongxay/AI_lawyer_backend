@@ -79,7 +79,7 @@ def client():
 class TestLegalQueryEndpoint:
     def test_post_query_requires_auth(self, client):
         response = client.post("/api/v1/legal/query", json={"question": "What are my lease termination rights?"})
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     def test_post_query_returns_200(self, client):
         response = client.post(

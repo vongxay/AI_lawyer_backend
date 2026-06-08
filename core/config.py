@@ -154,6 +154,14 @@ class Settings(BaseSettings):
     )
 
     @property
+    def max_upload_size_bytes(self) -> int:
+        return self.max_upload_size_mb * 1024 * 1024
+
+    @property
+    def max_request_body_bytes(self) -> int:
+        return self.max_request_body_mb * 1024 * 1024
+
+    @property
     def allowed_mime_types(self) -> set[str]:
         return set(self.allowed_upload_types.split(","))
 

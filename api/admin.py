@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field, HttpUrl
 
 from api.dependencies import AuditDep, ExpertQueueDep
 from api.schemas import IngestRequest
+from api.upload_utils import read_upload_with_limit, upload_limit_bytes
 from core.config import get_settings
 from core.database import get_supabase
 from core.exceptions import FileTooLargeError, UnsupportedFileTypeError
@@ -106,13 +107,9 @@ async def upload_legal_documents(
     normalized_law_category = _validate_law_category(law_category)
 
     results = []
+    max_bytes = upload_limit_bytes(settings)
     for upload in files:
-        content = await upload.read()
-        size_mb = len(content) / (1024 * 1024)
-        if size_mb > settings.max_upload_size_mb:
-            raise FileTooLargeError(
-                f"'{upload.filename}' ({size_mb:.1f}MB) exceeds limit of {settings.max_upload_size_mb}MB"
-            )
+        content = await read_upload_with_limit(upload, max_bytes=max_bytes)
 
         try:
             result = await service.ingest(

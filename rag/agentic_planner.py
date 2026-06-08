@@ -125,6 +125,7 @@ class AgenticRetrievalPlanner:
         recoverable_by_second_pass = reason in {
             "too_few_results",
             "no_statutory_authority",
+            "no_official_lao_source",
             "retrieved_text_quality_low",
         }
 
@@ -277,7 +278,7 @@ class AgenticRetrievalPlanner:
             if not query:
                 continue
             raw_priority = hint.get("priority")
-            hint_priority = 1 if raw_priority is None or raw_priority == "" else int(raw_priority)
+            hint_priority = 0 if raw_priority is None or raw_priority == "" else max(0, int(raw_priority) - 1)
             queries.append(
                 RetrievalQuery(
                     query=query,
