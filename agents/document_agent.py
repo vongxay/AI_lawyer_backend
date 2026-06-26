@@ -18,12 +18,13 @@ from typing import Any
 
 from agents.base_agent import BaseAgent
 from core.config import get_settings
+from core.jurisdiction import response_language_instruction
 from core.logging import get_logger
 
 log = get_logger(__name__)
 
 _DOCUMENT_SYSTEM_PROMPT = """
-You are a senior legal document analyst specialising in Thai and international contracts.
+You are a senior Lao PDR legal document analyst specialising in Lao contracts and official documents (and international contracts when relevant).
 
 Analyse the provided document and return strict JSON:
 {
@@ -69,6 +70,7 @@ class DocumentAnalysisAgent(BaseAgent):
         document_base64: str | None = None,
         case_context: str | None = None,
         model_override: str | None = None,
+        response_language: str | None = "lo",
         **kwargs,
     ) -> dict[str, Any]:
         settings = get_settings()
@@ -83,9 +85,13 @@ class DocumentAnalysisAgent(BaseAgent):
             # Vision-based analysis for scanned/image docs
             user_msg = self._build_vision_prompt(question, document_base64, case_context)
 
+        system_prompt = (
+            f"{_DOCUMENT_SYSTEM_PROMPT}\n\nLANGUAGE OVERRIDE:\n"
+            f"{response_language_instruction(response_language)}"
+        )
         result = await self._call_llm(
             model=model_override or settings.model_document,
-            system=_DOCUMENT_SYSTEM_PROMPT,
+            system=system_prompt,
             user_message=user_msg,
             max_tokens=settings.llm_max_tokens_document,
         )

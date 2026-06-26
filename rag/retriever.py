@@ -8,6 +8,7 @@ Order of operations:
 """
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -17,13 +18,16 @@ from core.logging import get_logger
 from rag.legal_text_matching import (
     extract_lao_legal_terms,
     normalise_search_text,
+    prepare_lao_fts_query,
     table_of_contents_penalty,
     term_matches_text,
     unique_terms,
 )
+from rag.retrieval_cache import deserialise_chunks, retrieval_cache_key, serialise_chunks
 
 if TYPE_CHECKING:
     from supabase import AsyncClient  # pragma: no cover
+    import redis.asyncio as aioredis
 
 log = get_logger(__name__)
 
@@ -44,8 +48,14 @@ THAI_ARTICLE = "\u0e21\u0e32\u0e15\u0e23\u0e32"
 
 
 class Retriever:
-    def __init__(self, supabase: "AsyncClient | None" = None) -> None:
+    def __init__(
+        self,
+        supabase: "AsyncClient | None" = None,
+        redis: "aioredis.Redis | None" = None,
+    ) -> None:
         self._supabase = supabase
+        self._redis = redis
+        self._settings = get_settings()
         self._chunk_search_supports_tenant_param: bool | None = None
 
     async def retrieve(
@@ -61,17 +71,48 @@ class Retriever:
             log.warning("retriever.no_database", mode="empty")
             return []
 
+        canonical = canonical_jurisdiction(jurisdiction)
+        effective_tenant_id = tenant_id or self._settings.default_tenant_id
+        cache_key = retrieval_cache_key(
+            query=query,
+            jurisdiction=canonical,
+            tenant_id=effective_tenant_id,
+            top_k=top_k,
+            embedded=embedding is not None,
+        )
+        if self._redis:
+            try:
+                cached = await self._redis.get(cache_key)
+                if cached:
+                    rows = deserialise_chunks(cached.decode() if isinstance(cached, bytes) else cached)
+                    if rows:
+                        log.debug("retriever.cache_hit", results=len(rows), jurisdiction=canonical)
+                        return rows[:top_k]
+            except Exception as exc:
+                log.debug("retriever.cache_get.failed", error=str(exc))
+
         try:
-            return await self._hybrid_search(
+            rows = await self._hybrid_search(
                 query=query,
                 embedding=embedding,
-                jurisdiction=canonical_jurisdiction(jurisdiction),
+                jurisdiction=canonical,
                 tenant_id=tenant_id,
                 top_k=top_k,
             )
         except Exception as exc:
             log.warning("retriever.search.failed", error=str(exc))
             return []
+
+        if self._redis and rows:
+            try:
+                await self._redis.setex(
+                    cache_key,
+                    self._settings.cache_ttl_retrieval_seconds,
+                    serialise_chunks(rows),
+                )
+            except Exception as exc:
+                log.debug("retriever.cache_set.failed", error=str(exc))
+        return rows
 
     async def _hybrid_search(
         self,
@@ -82,15 +123,25 @@ class Retriever:
         tenant_id: str | None,
         top_k: int,
     ) -> list[dict[str, Any]]:
-        chunk_rows = await self._chunk_search(
-            query=query,
-            embedding=embedding,
-            jurisdiction=jurisdiction,
-            tenant_id=tenant_id,
-            top_k=top_k,
+        article_rows, chunk_rows = await asyncio.gather(
+            self._direct_article_search(
+                query=query,
+                jurisdiction=jurisdiction,
+                tenant_id=tenant_id,
+                top_k=top_k,
+            ),
+            self._chunk_search(
+                query=query,
+                embedding=embedding,
+                jurisdiction=jurisdiction,
+                tenant_id=tenant_id,
+                top_k=top_k,
+            ),
         )
-        if chunk_rows:
-            if self._should_supplement_keyword(query):
+
+        if chunk_rows or article_rows:
+            combined = self._merge_rows(article_rows, chunk_rows, top_k)
+            if chunk_rows and self._should_supplement_keyword(query):
                 keyword_rows = await self._direct_keyword_search(
                     query=query,
                     jurisdiction=jurisdiction,
@@ -100,13 +151,15 @@ class Retriever:
                 if keyword_rows:
                     log.info(
                         "retriever.chunk_search.keyword_supplement",
-                        chunk_results=len(chunk_rows),
+                        chunk_results=len(combined),
                         keyword_results=len(keyword_rows),
                         jurisdiction=jurisdiction,
                     )
-                    return self._merge_rows(keyword_rows, chunk_rows, top_k)
-            log.info("retriever.chunk_search.ok", results=len(chunk_rows), jurisdiction=jurisdiction)
-            return chunk_rows
+                    return self._merge_rows(keyword_rows, combined, top_k)
+            if combined:
+                source = "chunk_rpc" if chunk_rows else "article_fast_path"
+                log.info("retriever.search.ok", results=len(combined), jurisdiction=jurisdiction, source=source)
+                return combined
 
         keyword_rows = await self._direct_keyword_search(
             query=query,
@@ -166,8 +219,9 @@ class Retriever:
     ) -> list[dict[str, Any]]:
         settings = get_settings()
         effective_tenant_id = tenant_id or settings.default_tenant_id
+        fts_query = prepare_lao_fts_query(query, jurisdiction=jurisdiction)
         params: dict[str, Any] = {
-            "query_text": query,
+            "query_text": fts_query,
             "match_count": top_k,
             "rrf_k": 60,
             "p_status": "active",
@@ -198,6 +252,152 @@ class Retriever:
             log.warning("retriever.chunk_search.failed", error=str(exc))
             return []
 
+    async def _direct_article_search(
+        self,
+        *,
+        query: str,
+        jurisdiction: str | None,
+        tenant_id: str | None,
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        if not self._supabase:
+            return []
+
+        targets = self._article_targets_from_text(query.casefold())
+        if not targets:
+            return []
+
+        tasks: list[Any] = []
+        for target in targets[:4]:
+            for prefix in (f"{LAO_ARTICLE} {target}", f"{THAI_ARTICLE} {target}"):
+                for scope in self._keyword_tenant_scopes(tenant_id):
+                    tasks.append(
+                        self._fetch_section_ref_matches(
+                            section_prefix=prefix,
+                            jurisdiction=jurisdiction,
+                            tenant_id=scope,
+                            top_k=top_k,
+                        )
+                    )
+
+        rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for batch in await asyncio.gather(*tasks, return_exceptions=True):
+            if isinstance(batch, Exception):
+                continue
+            for row in batch:
+                key = str(row.get("chunk_id") or row.get("id"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(row)
+
+        return sorted(rows, key=self._row_score, reverse=True)[:top_k]
+
+    async def fetch_related_articles(
+        self,
+        *,
+        article_numbers: list[str],
+        source_ids: list[str] | None = None,
+        jurisdiction: str | None = None,
+        tenant_id: str | None = None,
+        top_k: int = 12,
+    ) -> list[dict[str, Any]]:
+        """Fetch specific articles (referenced or adjacent) — like a lawyer pulling
+        the surrounding provisions of a statute instead of reading one line in isolation.
+
+        Returns normalised chunk rows tagged with retrieval_source="cross_reference".
+        """
+        if not self._supabase or not article_numbers:
+            return []
+
+        canonical = canonical_jurisdiction(jurisdiction)
+        wanted = []
+        seen_targets: set[str] = set()
+        for raw in article_numbers:
+            target = str(raw).strip().lstrip("0") or "0"
+            if target and target not in seen_targets:
+                seen_targets.add(target)
+                wanted.append(target)
+        source_filter = {str(s) for s in (source_ids or []) if s}
+
+        tasks: list[Any] = []
+        for target in wanted[:12]:
+            for prefix in (f"{LAO_ARTICLE} {target}", f"{THAI_ARTICLE} {target}"):
+                for scope in self._keyword_tenant_scopes(tenant_id):
+                    tasks.append(
+                        self._fetch_section_ref_matches(
+                            section_prefix=prefix,
+                            jurisdiction=canonical,
+                            tenant_id=scope,
+                            top_k=top_k,
+                            retrieval_source="cross_reference",
+                        )
+                    )
+
+        rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for batch in await asyncio.gather(*tasks, return_exceptions=True):
+            if isinstance(batch, Exception):
+                continue
+            for row in batch:
+                if source_filter:
+                    row_source = str(row.get("source_id") or "")
+                    if row_source and row_source not in source_filter:
+                        continue
+                key = str(row.get("chunk_id") or row.get("id"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(row)
+        return rows[:top_k]
+
+    async def _fetch_section_ref_matches(
+        self,
+        *,
+        section_prefix: str,
+        jurisdiction: str | None,
+        tenant_id: str | None,
+        top_k: int,
+        retrieval_source: str = "article_fast_path",
+    ) -> list[dict[str, Any]]:
+        if not self._supabase:
+            return []
+
+        request = (
+            self._supabase.table("document_chunks")
+            .select(
+                "source_id, id, tenant_id, source_table, title, content, document_type, "
+                "jurisdiction, status, review_status, metadata, section_ref"
+            )
+            .eq("status", "active")
+            .eq("review_status", "approved")
+            .ilike("section_ref", f"{section_prefix}%")
+            .limit(max(top_k, top_k * 2))
+        )
+        if jurisdiction:
+            request = request.eq("jurisdiction", jurisdiction)
+        if tenant_id:
+            request = request.eq("tenant_id", tenant_id)
+        else:
+            request = request.is_("tenant_id", "null")
+
+        try:
+            result = await request.execute()
+        except Exception as exc:
+            log.debug("retriever.article_search.failed", section_prefix=section_prefix, error=str(exc))
+            return []
+
+        rows: list[dict[str, Any]] = []
+        score = 4.8 if retrieval_source == "article_fast_path" else 3.2
+        for row in result.data or []:
+            rows.append(self._normalise_row({
+                **row,
+                "final_score": score,
+                "retrieval_source": retrieval_source,
+            }))
+        return rows
+
     async def _direct_keyword_search(
         self,
         *,
@@ -210,13 +410,12 @@ class Retriever:
         if not terms:
             return []
 
-        rows: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for term in terms[:18]:
+        async def _search_term(term: str) -> list[dict[str, Any]]:
             safe_term = self._safe_ilike_term(term)
             if not safe_term:
-                continue
+                return []
 
+            local_rows: list[dict[str, Any]] = []
             for scope in self._keyword_tenant_scopes(tenant_id):
                 try:
                     request = self._document_chunks_keyword_request(
@@ -230,16 +429,11 @@ class Retriever:
                         score = self._keyword_relevance_score(row, terms)
                         if score <= 0:
                             continue
-                        normalised = self._normalise_row({
+                        local_rows.append(self._normalise_row({
                             **row,
                             "final_score": score,
                             "retrieval_source": "direct_keyword",
-                        })
-                        key = str(normalised.get("chunk_id") or normalised.get("id"))
-                        if key in seen:
-                            continue
-                        seen.add(key)
-                        rows.append(normalised)
+                        }))
                 except Exception as exc:
                     log.debug(
                         "retriever.direct_keyword.term_failed",
@@ -247,6 +441,24 @@ class Retriever:
                         tenant_scope=scope or "public",
                         error=str(exc),
                     )
+            return local_rows
+
+        batches = await asyncio.gather(
+            *[_search_term(term) for term in terms[:18]],
+            return_exceptions=True,
+        )
+
+        rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for batch in batches:
+            if isinstance(batch, Exception):
+                continue
+            for normalised in batch:
+                key = str(normalised.get("chunk_id") or normalised.get("id"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(normalised)
         return sorted(rows, key=self._row_score, reverse=True)[:top_k]
 
     def _keyword_tenant_scopes(self, tenant_id: str | None) -> tuple[str | None, ...]:

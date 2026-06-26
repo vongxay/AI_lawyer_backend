@@ -93,7 +93,21 @@ To enable chunk-level retrieval in Supabase, apply:
 \i supabase_lao_legal_metadata.sql
 \i supabase_agentic_rag_chunks.sql
 \i supabase_lao_law_categories.sql
+\i supabase_lao_fts.sql
 ```
+
+If hybrid search RPC calls fail with `PGRST203` (ambiguous function overload), also run:
+
+```sql
+\i supabase_fix_hybrid_search_overload.sql
+```
+
+**Lao keyword search (`supabase_lao_fts.sql`)** adds:
+- Lao text normalization (tone-mark tolerant, OCR variants)
+- Token boundaries for FTS on Lao script
+- `search_tsv` column + GIN index on `document_chunks`
+- Trigram (`pg_trgm`) similarity leg for Lao queries
+- Updated `hybrid_document_chunk_search` RPC (semantic + Lao FTS + trigram RRF)
 
 If your SQL editor does not support `\i`, open
 the SQL files above and run them in that order after the base schema.

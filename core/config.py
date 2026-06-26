@@ -80,6 +80,7 @@ class Settings(BaseSettings):
     cache_ttl_embedding_seconds: int = 86_400   # 24h
     cache_ttl_legal_qa_seconds: int = 3_600     # 1h
     cache_ttl_law_summary_seconds: int = 21_600 # 6h
+    cache_ttl_retrieval_seconds: int = 3_600     # 1h
 
     # ── AI Providers ───────────────────────────────────────────────────────────
     openai_api_key: str | None = None
@@ -128,7 +129,7 @@ class Settings(BaseSettings):
     rag_chunk_max_chars: int = 2600
     rag_chunk_overlap_chars: int = 350
     rag_embedding_batch_size: int = 48
-    rag_plan_max_queries: int = 3
+    rag_plan_max_queries: int = 5
     reasoning_context_top_k: int = 10
     reasoning_context_chunk_chars: int = 2000
     case_analysis_min_fact_chars: int = 120
@@ -152,7 +153,7 @@ class Settings(BaseSettings):
     allowed_upload_types: str = (
         "application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,"
         "application/msword,text/plain,text/csv,text/markdown,image/jpeg,image/png,image/webp,"
-        "audio/mpeg,audio/wav,audio/x-wav,audio/mp4,video/mp4,application/zip,application/x-zip-compressed"
+        "audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/m4a,video/mp4,application/zip,application/x-zip-compressed"
     )
 
     @property

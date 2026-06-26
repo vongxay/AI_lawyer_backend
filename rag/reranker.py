@@ -121,6 +121,22 @@ class Reranker:
         return targets[:5]
 
     def _chunk_matches_article(self, chunk: dict[str, Any], target: str) -> bool:
+        metadata = chunk.get("metadata") if isinstance(chunk.get("metadata"), dict) else {}
+        article_value = str(chunk.get("article") or metadata.get("article") or "").strip()
+        if article_value:
+            normalised = article_value.lstrip("0") or "0"
+            target_normalised = target.lstrip("0") or "0"
+            if normalised == target_normalised:
+                return True
+
+        section_ref = str(chunk.get("section_ref") or chunk.get("section") or metadata.get("section") or "")
+        if section_ref:
+            section_patterns = (
+                rf"(?:{LAO_ARTICLE}|{THAI_ARTICLE}|article|art\.?|section|sec\.?)\s*0*{re.escape(target)}(?:\D|$)",
+            )
+            if any(re.search(pattern, section_ref, flags=re.IGNORECASE) for pattern in section_patterns):
+                return True
+
         text = self._chunk_text(chunk)
         patterns = (
             rf"(?:{LAO_ARTICLE}|{THAI_ARTICLE}|article|art\.?|section|sec\.?)\s*0*{re.escape(target)}(?:\D|$)",

@@ -65,6 +65,8 @@ class LegalQueryAnalysis:
     requested_outcome: str | None
     authority_hints: list[AuthorityHint] = field(default_factory=list)
     search_phrases: list[str] = field(default_factory=list)
+    articles: list[str] = field(default_factory=list)
+    question_style: str = "general"
     confidence: float = 0.65
 
     def to_dict(self) -> dict[str, Any]:
@@ -101,7 +103,14 @@ class LegalQueryAnalyzer:
             articles=articles,
             question=normalized,
         )
-        search_phrases = self._search_phrases(normalized, practice_area, issue_type, authority_hints)
+        question_style = self._question_style(normalized, issue_type)
+        search_phrases = self._search_phrases(
+            normalized,
+            practice_area,
+            issue_type,
+            authority_hints,
+            question_style=question_style,
+        )
         confidence = self._confidence(practice_area, issue_type, facts, articles)
 
         return LegalQueryAnalysis(
@@ -118,11 +127,22 @@ class LegalQueryAnalyzer:
             requested_outcome=requested_outcome,
             authority_hints=authority_hints,
             search_phrases=search_phrases,
+            articles=articles,
+            question_style=question_style,
             confidence=confidence,
         )
 
     def _normalize(self, question: str) -> str:
-        return re.sub(r"\s+", " ", question or "").strip()
+        text = re.sub(r"\s+", " ", question or "").strip()
+        # Strip common conversational fillers without removing legal meaning.
+        fillers = (
+            r"^(?:please|help me|can you|could you|tell me|explain|i want to know|i need to know)\s+",
+            r"^(?:ຊ່ວຍ|ຊ່ວຍອະທິບາຍ|ຊ່ວຍບອກ|ຢາກຮູ້|ຢາກຖາມ|ຂໍຖາມ|ຂໍຮູ້)\s*",
+            r"^(?:ช่วย|ช่วยอธิบาย|ช่วยบอก|อยากรู้|อยากถาม|ขอถาม)\s*",
+        )
+        for pattern in fillers:
+            text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+        return text
 
     def _practice_area(self, question: str) -> str:
         lowered = question.casefold()
@@ -158,6 +178,14 @@ class LegalQueryAnalyzer:
             "family": ("marriage", "divorce", "child", "custody", "inheritance", "succession", "spouse"),
             "criminal": ("criminal", "police", "detention", "bail", "offence", "offense", "penalty", "prosecutor"),
             "contract": ("contract", "agreement", "breach", "debt", "obligation", "damages"),
+            "administrative": (
+                "permit", "license", "registration", "ministry", "government", "public service",
+                "\u0e81\u0e87", "\u0e81\u0e0e", "\u0ec3\u0e9a\u0ead\u0ecd", "\u0ec3\u0e9a\u0ead\u0eb3\u0e99\u0eb2\u0e8a",
+                "\u0e82\u0ecd\u0ec2\u0ea1\u0e87", "\u0ec0\u0e9a\u0eb5\u0e81", "\u0ec1\u0e82\u0ea7",
+            ),
+            "investment": ("investment", "foreign", "enterprise", "fdi", "concession", "\u0e81\u0eb2\u0e99\u0e95\u0ecd", "\u0e99\u0ecd\u0e97\u0e97\u0eb8\u0e99"),
+            "immigration": ("visa", "passport", "foreigner", "work permit", "residence", "\u0ec1\u0e8a\u0ec8", "\u0ec0\u0e9a\u0eb5\u0e81"),
+            "environment": ("environment", "pollution", "forest", "mining", "\u0e9b\u0ec8\u0eb2", "\u0e9b\u0ec8\u0eb2\u0ec1\u0e81\u0e9b", "\u0e9b\u0ec8\u0eb2\u0ec1\u0e81\u0ec1\u0e81\u0e9b"),
         }
         for area, markers in areas.items():
             if any(marker in lowered for marker in markers):
@@ -166,18 +194,27 @@ class LegalQueryAnalyzer:
 
     def _issue_type(self, question: str) -> str:
         lowered = question.casefold()
-        if any(word in lowered for word in ("right", "rights", "\u0eaa\u0eb4\u0e94", "\u0e2a\u0e34\u0e17\u0e18\u0e34")):
+        if any(word in lowered for word in ("right", "rights", "\u0eaa\u0eb4\u0e94", "\u0e2a\u0e34\u0e17\u0e18\u0e34", "ມີສິດ", "ໄດ້ບໍ", "ໄດ້ບໍ່")):
             return "rights"
-        if any(word in lowered for word in ("can i sue", "claim", "compensation", "damages", "remedy")):
+        if any(word in lowered for word in ("what is", "meaning of", "define", "definition", "ຄືຫຍັງ", "ແມ່ນຫຍັງ", "ຄວາມໝາຍ")):
+            return "definition"
+        if any(word in lowered for word in ("compare", "difference", "vs", "between", "ຕ່າງກັນ", "ແຕກຕ່າງ")):
+            return "comparison"
+        if any(word in lowered for word in ("can i sue", "claim", "compensation", "damages", "remedy", "ເອົາຄືນ", "ຟ້ອງ")):
             return "remedy"
-        if any(word in lowered for word in ("deadline", "limitation", "appeal", "file", "procedure", "process")):
+        if any(word in lowered for word in ("deadline", "limitation", "appeal", "file", "procedure", "process", "ຂັ້ນຕອນ", "ກຳນົດເວລາ")):
             return "procedure"
         if any(word in lowered for word in ("risk", "chance", "win", "strategy", "negotiate", "settle")):
             return "strategy"
-        if any(word in lowered for word in ("legal", "valid", "void", "enforce", "terminate", "cancel")):
+        if any(word in lowered for word in ("legal", "valid", "void", "enforce", "terminate", "cancel", "ຖືກຕ້ອງ", "ຜິດ")):
             return "validity"
-        if any(word in lowered for word in ("must", "required", "permit", "license", "register", "compliance")):
+        if any(
+            word in lowered
+            for word in ("must", "required", "permit", "license", "register", "compliance", "ຕ້ອງ", "ຄວນ", "ຈຳເປັນ")
+        ):
             return "compliance"
+        if any(word in lowered for word in ("if ", "what if", "suppose", "scenario", "ຖ້າ", "ກໍລະນີ")):
+            return "hypothetical"
         return "analysis"
 
     def _article_refs(self, question: str) -> list[str]:
@@ -222,7 +259,8 @@ class LegalQueryAnalyzer:
     ) -> list[str]:
         missing: list[str] = []
         memory_has_facts = bool(memory and (memory.get("facts_summary") or memory.get("conversation_summary")))
-        if not memory_has_facts and len(question) < 120:
+        is_general_info = issue_type in {"rights", "definition", "comparison", "compliance", "procedure", "analysis", "hypothetical"}
+        if not memory_has_facts and len(question) < 120 and not is_general_info:
             missing.append("timeline and key dates")
             missing.append("documents or notices already received")
 
@@ -373,20 +411,91 @@ class LegalQueryAnalyzer:
             )
         return hints[:5]
 
+    def _question_style(self, question: str, issue_type: str) -> str:
+        lowered = question.casefold()
+        if issue_type == "definition":
+            return "definition"
+        if issue_type == "comparison":
+            return "comparison"
+        if issue_type == "hypothetical":
+            return "hypothetical"
+        if issue_type in {"rights", "compliance"}:
+            return "rights_checklist"
+        if issue_type == "procedure":
+            return "procedure"
+        if "?" in question or any(marker in lowered for marker in ("ບໍ", "ບໍ່", "ไหม", "หรือไม่", "can ", "should ")):
+            return "yes_no"
+        if len(question) < 80:
+            return "short"
+        return "general"
+
+    def _colloquial_reformulations(
+        self,
+        question: str,
+        practice_area: str,
+        issue_type: str,
+        question_style: str,
+    ) -> list[str]:
+        reformulations: list[str] = []
+        core = question.strip(" ?")
+        if question_style == "definition":
+            reformulations.extend(
+                [
+                    f"{LAO_LAW} {practice_area} {core}",
+                    f"{practice_area} legal definition Lao PDR",
+                    f"{LAO_ARTICLE} {practice_area} {core}",
+                ]
+            )
+        elif question_style == "rights_checklist":
+            reformulations.extend(
+                [
+                    f"{LAO_RIGHT} {practice_area} {core}",
+                    f"{LAO_LAND_USE_RIGHT} {core}" if practice_area == "land" else f"{practice_area} rights obligations Lao law",
+                    f"statutory requirements {practice_area} Lao PDR",
+                ]
+            )
+        elif question_style == "procedure":
+            reformulations.extend(
+                [
+                    f"procedure steps {practice_area} Lao law",
+                    f"deadline filing requirement {practice_area}",
+                ]
+            )
+        elif question_style == "yes_no":
+            reformulations.extend(
+                [
+                    f"conditions requirements {practice_area} {core}",
+                    f"prohibited allowed {practice_area} Lao law",
+                ]
+            )
+        elif practice_area != "general":
+            reformulations.append(f"{LAO_LAW} {practice_area} {issue_type} {core}")
+        return [item for item in reformulations if item.strip()]
+
     def _search_phrases(
         self,
         question: str,
         practice_area: str,
         issue_type: str,
         authority_hints: list[AuthorityHint],
+        *,
+        question_style: str = "general",
     ) -> list[str]:
         phrases = [question]
+        phrases.extend(
+            self._colloquial_reformulations(question, practice_area, issue_type, question_style)
+        )
         for hint in authority_hints:
             parts = [hint.law_name, hint.article or "", *hint.search_terms[:4], practice_area, issue_type]
             phrase = " ".join(part for part in parts if part).strip()
             if phrase:
                 phrases.append(phrase)
-        return list(dict.fromkeys(phrases))[:8]
+        # Keyword-only fallback helps when users ask in very informal language.
+        keyword_only = re.sub(r"[^\w\u0e80-\u0eff\u0e00-\u0e7f\s]", " ", question)
+        keyword_only = re.sub(r"\s+", " ", keyword_only).strip()
+        if keyword_only and keyword_only.casefold() != question.casefold():
+            phrases.append(f"{keyword_only} {LAO_LAW} {practice_area}")
+        return list(dict.fromkeys(phrases))[:12]
 
     def _confidence(self, practice_area: str, issue_type: str, facts: list[str], articles: list[str]) -> float:
         score = 0.45

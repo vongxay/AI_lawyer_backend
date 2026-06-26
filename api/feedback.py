@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from api.schemas import FeedbackRequest
 from core.database import get_supabase
@@ -24,7 +24,18 @@ async def submit_feedback(
     payload: FeedbackRequest,
     user: AuthUser,
 ) -> dict:
+    if not payload.message_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="message_id is required to submit feedback.",
+        )
+
     supabase = await get_supabase()
+    if not supabase:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Feedback storage is unavailable.",
+        )
 
     entry = {
         "tenant_id": user.tenant_id,
@@ -37,11 +48,21 @@ async def submit_feedback(
         "corrected_answer": payload.corrected_answer,
     }
 
-    if supabase and payload.message_id:
-        try:
-            await supabase.table("feedback").insert(entry).execute()
-        except Exception as exc:
-            log.warning("feedback.persist.failed", error=str(exc))
+    try:
+        await (
+            supabase.table("feedback")
+            .delete()
+            .eq("message_id", payload.message_id)
+            .eq("user_id", user.sub)
+            .execute()
+        )
+        await supabase.table("feedback").insert(entry).execute()
+    except Exception as exc:
+        log.warning("feedback.persist.failed", error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Failed to save feedback.",
+        ) from exc
 
     log.info("feedback.received", session_id=payload.session_id, rating=payload.rating)
-    return {"status": "ok", "session_id": payload.session_id}
+    return {"status": "ok", "session_id": payload.session_id, "message_id": payload.message_id}

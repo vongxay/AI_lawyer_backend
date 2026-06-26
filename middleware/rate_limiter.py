@@ -97,6 +97,8 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         self._endpoint_limits: dict[str, int] = {
             "/api/v1/legal/query": self._settings.rate_limit_query_per_minute,
             "/api/v1/legal/query/stream": self._settings.rate_limit_stream_per_minute,
+            "/api/v1/legal/query/with-files": self._settings.rate_limit_query_per_minute,
+            "/api/v1/legal/draft": self._settings.rate_limit_query_per_minute,
             "/api/v1/documents/analyze": self._settings.rate_limit_document_per_minute,
             "/api/v1/evidence/analyze": self._settings.rate_limit_evidence_per_minute,
         }

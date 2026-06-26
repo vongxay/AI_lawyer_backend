@@ -86,7 +86,12 @@ def needs_multilingual_embedding(text: str, jurisdiction: str | None = None) -> 
     return contains_lao_script(text) or contains_thai_script(text)
 
 
-def infer_response_language(text: str, explicit: str | None = None) -> str:
+def infer_response_language(
+    text: str,
+    explicit: str | None = None,
+    *,
+    jurisdiction: str | None = None,
+) -> str:
     if explicit:
         normalized = explicit.strip().casefold().replace("_", "-")
         if normalized in {"lo", "la", "lao", "laos", "lao-pdr"}:
@@ -100,6 +105,11 @@ def infer_response_language(text: str, explicit: str | None = None) -> str:
         return "lo"
     if contains_thai_script(text):
         return "th"
+    # Lao-first product: when the matter is under Lao jurisdiction and the user
+    # did not write in Thai script, default to Lao so answers stay professional
+    # and consistent with the all-Lao knowledge base.
+    if canonical_jurisdiction(jurisdiction) == "laos":
+        return "lo"
     return "en"
 
 

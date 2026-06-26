@@ -9,6 +9,7 @@ import json
 import time
 from typing import TYPE_CHECKING, Any
 
+from memory.case_facts import merge_case_facts
 from core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -68,6 +69,9 @@ class CaseMemoryService:
         irac: dict[str, Any],
         tenant_id: str | None = None,
         user_id: str | None = None,
+        material_facts: list[str] | None = None,
+        legal_issues: list[str] | None = None,
+        issue_primary: str | None = None,
     ) -> None:
         """Append IRAC result to case history, refresh citations, and persist."""
         if not case_id:
@@ -76,6 +80,14 @@ class CaseMemoryService:
         existing = await self.get(case_id, tenant_id=tenant_id)
         if existing.get("empty"):
             existing = self._new_case_record(case_id, tenant_id, user_id)
+
+        existing["facts_summary"] = merge_case_facts(
+            existing.get("facts_summary"),
+            question=question,
+            material_facts=material_facts,
+            legal_issues=legal_issues,
+            issue_primary=issue_primary,
+        )
 
         history: list[dict[str, Any]] = list(existing.get("irac_history") or [])
         history.append({

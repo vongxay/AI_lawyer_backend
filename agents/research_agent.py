@@ -5,10 +5,11 @@ Legal Research Agent — CORE agent, runs on every query.
 
 Responsibilities:
 1. Generate query embedding
-2. Hybrid search (semantic + BM25) via Supabase pgvector + FTS
-3. Case law graph expansion (precedent chains)
-4. Cross-encoder reranking
-5. Assemble structured legal context for IRAC agent
+2. Hybrid search (semantic + keyword RRF) via Supabase pgvector + FTS
+3. Cross-reference & adjacent-article expansion (read surrounding provisions)
+4. Case law graph expansion (precedent chains, non-Lao jurisdictions)
+5. Heuristic relevance reranking (article/authority/structure boosts)
+6. Assemble structured legal context for IRAC agent
 
 Output schema:
     retrieved_documents: list of ranked legal chunks
@@ -17,6 +18,8 @@ Output schema:
 """
 from __future__ import annotations
 
+import asyncio
+import re
 from typing import TYPE_CHECKING, Any
 
 from agents.base_agent import BaseAgent
@@ -50,7 +53,7 @@ class LegalResearchAgent(BaseAgent):
     ) -> None:
         super().__init__(**kwargs)
         self._embedder = Embedder(redis=redis)
-        self._retriever = Retriever(supabase=supabase)
+        self._retriever = Retriever(supabase=supabase, redis=redis)
         self._graph = GraphExpander(supabase=supabase)
         self._reranker = Reranker()
         self._planner = AgenticRetrievalPlanner()
@@ -82,13 +85,32 @@ class LegalResearchAgent(BaseAgent):
             top_k=max(settings.rag_top_k, settings.rag_top_k * 2),
         )
 
+        # Cross-reference & adjacent-article expansion: a senior lawyer never reads a
+        # single article in isolation — they pull the provisions it references and the
+        # neighbouring articles (definitions, exceptions, penalties).
+        related_chunks = await self._expand_cross_references(
+            chunks=chunks,
+            question=question,
+            query_analysis=query_analysis,
+            jurisdiction=effective_jurisdiction,
+            tenant_id=tenant_id,
+        )
+        if related_chunks:
+            before = len(chunks)
+            chunks = self._dedupe_chunks(chunks + related_chunks)
+            retrieval_trace.append({
+                "purpose": "cross_reference_expansion",
+                "mode": "related_articles",
+                "added": len(chunks) - before,
+            })
+
         # Step 3: Graph expansion from top case hits
         top_case_ids = [
             str(c.get("source_id") or c.get("id")) for c in chunks[:5]
             if c.get("type") == "case" and (c.get("source_id") or c.get("id"))
         ]
         graph_results = []
-        if top_case_ids:
+        if top_case_ids and effective_jurisdiction != "laos":
             graph_results = await self._graph.expand(
                 case_ids=top_case_ids,
                 depth=settings.graph_depth,
@@ -174,6 +196,91 @@ class LegalResearchAgent(BaseAgent):
         })
         return chunks, trace, tokens, coverage
 
+    _ARTICLE_REF_RE = re.compile(
+        r"(?:\u0ea1\u0eb2\u0e94\u0e95\u0eb2|\u0e21\u0e32\u0e15\u0e23\u0e32|article|art\.?|section|sec\.?)\s*0*(\d{1,4})",
+        flags=re.IGNORECASE,
+    )
+
+    async def _expand_cross_references(
+        self,
+        *,
+        chunks: list[dict[str, Any]],
+        question: str,
+        query_analysis: LegalQueryAnalysis,
+        jurisdiction: str | None,
+        tenant_id: str | None,
+    ) -> list[dict[str, Any]]:
+        if not chunks:
+            return []
+
+        analysis = query_analysis.to_dict()
+        existing_ids = {
+            str(c.get("chunk_id") or c.get("id"))
+            for c in chunks
+            if c.get("chunk_id") or c.get("id")
+        }
+
+        # Articles the user is focused on (from question + authority hints) → also pull neighbours.
+        focus_articles: set[str] = set(self._ARTICLE_REF_RE.findall(question or ""))
+        for hint in (analysis.get("authority_hints") or []):
+            if isinstance(hint, dict) and hint.get("article"):
+                focus_articles.update(self._ARTICLE_REF_RE.findall(str(hint.get("article"))))
+
+        # Articles cross-referenced inside the top retrieved provisions.
+        referenced_articles: set[str] = set()
+        top_source_ids: list[str] = []
+        for chunk in chunks[:8]:
+            sid = str(chunk.get("source_id") or "")
+            if sid and sid not in top_source_ids:
+                top_source_ids.append(sid)
+            body = " ".join(
+                str(chunk.get(k) or "")
+                for k in ("content", "section", "section_ref")
+            )
+            referenced_articles.update(self._ARTICLE_REF_RE.findall(body))
+
+        # Build the target set: focus articles + their neighbours + referenced articles.
+        targets: set[str] = set()
+        for art in focus_articles:
+            targets.add(art)
+            try:
+                n = int(art)
+                targets.add(str(n - 1)) if n > 1 else None
+                targets.add(str(n + 1))
+            except ValueError:
+                continue
+        targets.update(referenced_articles)
+
+        # Drop articles already present to avoid wasted lookups.
+        present_articles: set[str] = set()
+        for chunk in chunks:
+            for field in (chunk.get("section"), chunk.get("section_ref")):
+                if field:
+                    present_articles.update(self._ARTICLE_REF_RE.findall(str(field)))
+        targets = {t for t in targets if t and t not in present_articles}
+        if not targets:
+            return []
+
+        try:
+            related = await self._retriever.fetch_related_articles(
+                article_numbers=sorted(targets, key=lambda x: int(x) if x.isdigit() else 0)[:10],
+                source_ids=top_source_ids or None,
+                jurisdiction=jurisdiction,
+                tenant_id=tenant_id,
+                top_k=12,
+            )
+        except Exception as exc:
+            log.debug("research.cross_reference.failed", error=str(exc))
+            return []
+
+        fresh = [
+            row for row in related
+            if str(row.get("chunk_id") or row.get("id")) not in existing_ids
+        ]
+        if fresh:
+            log.info("research.cross_reference.expanded", added=len(fresh), targets=len(targets))
+        return fresh
+
     async def _run_retrieval_plan(
         self,
         plan: list[RetrievalQuery],
@@ -181,10 +288,8 @@ class LegalResearchAgent(BaseAgent):
         tenant_id: str | None,
         top_k: int,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
-        all_chunks: list[dict[str, Any]] = []
-        trace: list[dict[str, Any]] = []
-        total_tokens = 0
         settings = get_settings()
+        plan_slice = plan[:max(1, settings.rag_plan_max_queries)]
         can_embed = (
             settings._looks_configured_secret(settings.openai_api_key)
             and not self._embedding_unavailable
@@ -193,60 +298,107 @@ class LegalResearchAgent(BaseAgent):
             reason = "embedding_provider_unavailable" if self._embedding_unavailable else "openai_api_key_not_configured"
             log.info("research.embedding.disabled_keyword_only", reason=reason)
 
-        for item in plan[:max(1, settings.rag_plan_max_queries)]:
-            embedding_vector: list[float] | None = None
-            embedding_model: str | None = None
-            item_embedding_error: str | None = None
-            if can_embed:
-                try:
-                    embedding_result = await self._embedder.embed(
-                        item.query,
-                        multilingual=needs_multilingual_embedding(item.query, item.jurisdiction),
-                    )
-                    embedding_vector = embedding_result.vector
-                    embedding_model = embedding_result.model
-                    total_tokens += embedding_result.tokens
-                except ProviderNotConfiguredError as exc:
-                    item_embedding_error = str(exc)
-                    can_embed = False
-                    self._embedding_unavailable = True
-                    log.warning("research.embedding.unavailable_keyword_only", error=str(exc))
-                except Exception as exc:  # noqa: BLE001
-                    item_embedding_error = str(exc)
-                    can_embed = False
-                    self._embedding_unavailable = True
-                    log.warning("research.embedding.failed_keyword_only", error=str(exc))
+        item_results = await asyncio.gather(
+            *[
+                self._run_plan_query(
+                    item,
+                    tenant_id=tenant_id,
+                    top_k=top_k,
+                    can_embed=can_embed,
+                )
+                for item in plan_slice
+            ],
+            return_exceptions=True,
+        )
 
-            chunks = await self._retriever.retrieve(
-                query=item.query,
-                embedding=embedding_vector,
-                jurisdiction=item.jurisdiction,
-                tenant_id=tenant_id,
-                top_k=top_k,
-            )
+        all_chunks: list[dict[str, Any]] = []
+        trace: list[dict[str, Any]] = []
+        total_tokens = 0
+        for item, result in zip(plan_slice, item_results):
+            if isinstance(result, Exception):
+                log.warning("research.plan_query.failed", purpose=item.purpose, error=str(result))
+                trace.append({
+                    "purpose": item.purpose,
+                    "jurisdiction": item.jurisdiction,
+                    "results": 0,
+                    "mode": "failed",
+                    "error": str(result),
+                })
+                continue
+
+            chunks, trace_entry, tokens, embedding_disabled = result
             all_chunks.extend(chunks)
+            trace.append(trace_entry)
+            total_tokens += tokens
+            if embedding_disabled:
+                can_embed = False
+                self._embedding_unavailable = True
+
+        deduped = self._dedupe_chunks(all_chunks)
+        if self._has_sufficient_statutory_context(deduped, plan_slice[0].jurisdiction if plan_slice else None):
+            coverage = self._planner.assess_coverage(deduped, plan_slice[0].jurisdiction if plan_slice else None)
             trace.append({
-                "purpose": item.purpose,
-                "jurisdiction": item.jurisdiction,
-                "results": len(chunks),
-                "embedding_model": embedding_model,
-                "mode": "hybrid" if embedding_vector else "keyword_only",
-                "embedding_error": item_embedding_error,
+                "purpose": "early_stop_sufficient_statutory_context",
+                "jurisdiction": plan_slice[0].jurisdiction if plan_slice else None,
+                "results": len(deduped),
+                "mode": "agentic_fast_path",
+                "reason": coverage.reason or "sufficient_primary_context",
+                **coverage.metrics,
             })
 
-            if self._has_sufficient_statutory_context(all_chunks, item.jurisdiction):
-                coverage = self._planner.assess_coverage(self._dedupe_chunks(all_chunks), item.jurisdiction)
-                trace.append({
-                    "purpose": "early_stop_sufficient_statutory_context",
-                    "jurisdiction": item.jurisdiction,
-                    "results": len(all_chunks),
-                    "mode": "agentic_fast_path",
-                    "reason": coverage.reason or "sufficient_primary_context",
-                    **coverage.metrics,
-                })
-                break
+        return deduped, trace, total_tokens
 
-        return all_chunks, trace, total_tokens
+    async def _run_plan_query(
+        self,
+        item: RetrievalQuery,
+        *,
+        tenant_id: str | None,
+        top_k: int,
+        can_embed: bool,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], int, bool]:
+        embedding_vector: list[float] | None = None
+        embedding_model: str | None = None
+        item_embedding_error: str | None = None
+        embedding_disabled = False
+
+        if can_embed:
+            try:
+                embedding_result = await self._embedder.embed(
+                    item.query,
+                    multilingual=needs_multilingual_embedding(item.query, item.jurisdiction),
+                )
+                embedding_vector = embedding_result.vector
+                embedding_model = embedding_result.model
+                tokens = embedding_result.tokens
+            except ProviderNotConfiguredError as exc:
+                item_embedding_error = str(exc)
+                embedding_disabled = True
+                tokens = 0
+                log.warning("research.embedding.unavailable_keyword_only", error=str(exc))
+            except Exception as exc:  # noqa: BLE001
+                item_embedding_error = str(exc)
+                embedding_disabled = True
+                tokens = 0
+                log.warning("research.embedding.failed_keyword_only", error=str(exc))
+        else:
+            tokens = 0
+
+        chunks = await self._retriever.retrieve(
+            query=item.query,
+            embedding=embedding_vector,
+            jurisdiction=item.jurisdiction,
+            tenant_id=tenant_id,
+            top_k=top_k,
+        )
+        trace_entry = {
+            "purpose": item.purpose,
+            "jurisdiction": item.jurisdiction,
+            "results": len(chunks),
+            "embedding_model": embedding_model,
+            "mode": "hybrid" if embedding_vector else "keyword_only",
+            "embedding_error": item_embedding_error,
+        }
+        return chunks, trace_entry, tokens, embedding_disabled
 
     def _extract_memory_highlights(self, memory: dict) -> dict:
         if memory.get("empty"):

@@ -131,7 +131,7 @@ class WorkflowManager:
         effective_mode = self._normalise_query_mode(query_mode, evidence_files=evidence_files, document_text=document_text)
         effective_style = self._normalise_response_style(response_style, query_mode=effective_mode)
         effective_urgency = urgency if urgency in {"normal", "urgent", "critical"} else "normal"
-        response_language = infer_response_language(question)
+        response_language = infer_response_language(question, jurisdiction=effective_jurisdiction)
         selected_model_id = self._normalise_model_id(model_id)
         model_policy = self._model_policy(selected_model_id)
 
@@ -334,6 +334,7 @@ class WorkflowManager:
                         document_text=clean_doc_text,
                         case_context=memory.get("facts_summary"),
                         model_override=model_policy["document"],
+                        response_language=response_language,
                     )
                 )
 
@@ -345,6 +346,7 @@ class WorkflowManager:
                         evidence_files=evidence_files,
                         case_context=memory.get("facts_summary"),
                         model_override=model_policy["evidence"],
+                        response_language=response_language,
                     )
                 )
 
@@ -385,6 +387,7 @@ class WorkflowManager:
 
         verify_coro = self._verification_agent.run(
             citations=citations_to_verify,
+            retrieved_documents=(research_data or {}).get("retrieved_documents") or [],
             model_override=model_policy["verification"],
         )
         risk_coro = (
@@ -450,6 +453,13 @@ class WorkflowManager:
             irac=irac_data,
             tenant_id=tenant_id,
             user_id=user_id,
+            material_facts=(research_data.get("query_analysis") or {}).get("material_facts")
+            if isinstance(research_data.get("query_analysis"), dict)
+            else None,
+            legal_issues=(research_data.get("query_analysis") or {}).get("legal_issues")
+            if isinstance(research_data.get("query_analysis"), dict)
+            else None,
+            issue_primary=(irac_data.get("irac") or {}).get("issue", {}).get("primary"),
         )
 
         # ── Step 10: Audit log ────────────────────────────────────────────────
@@ -1040,16 +1050,31 @@ class WorkflowManager:
     ) -> dict[str, Any]:
         irac = irac_data.get("irac", {})
         disclaimer = self._disclaimer_for_language(response_language)
+        all_citations = (verification_data or {}).get("citations", irac_data.get("citations", []))
+        presented_citations = [
+            c for c in all_citations
+            if not (isinstance(c, dict) and c.get("status") == "REJECTED")
+        ]
+        rejected_citations = [
+            c for c in all_citations
+            if isinstance(c, dict) and c.get("status") == "REJECTED"
+        ]
+        answer_text = self._build_answer_text(irac, risk_data, response_style, response_language)
+        refused = confidence < self._settings.confidence_refuse_threshold
+        if refused:
+            answer_text = self._low_confidence_answer(answer_text, response_language)
         return {
             "irac": irac,
-            "answer": self._build_answer_text(irac, risk_data, response_style, response_language),
+            "answer": answer_text,
+            "answer_refused": refused,
             "query_type": query_type,
             "query_mode": query_mode,
             "response_style": response_style,
             "response_language": response_language,
             "selected_model_id": selected_model_id,
             "session_id": session_id,
-            "citations": (verification_data or {}).get("citations", irac_data.get("citations", [])),
+            "citations": presented_citations,
+            "rejected_citations": rejected_citations,
             "citations_verified": (verification_data or {}).get("citations_verified", False),
             "confidence": round(confidence, 3),
             "agents_used": agents_used,
@@ -1118,6 +1143,33 @@ class WorkflowManager:
                 parts.append(f"{labels['immediate_actions']}\n" + "\n".join(f"- {step}" for step in immediate_actions))
 
         return "\n\n".join(parts)
+
+    def _low_confidence_answer(self, draft_answer: str, response_language: str) -> str:
+        """Prepend an honest limitation notice when confidence is below the refuse threshold.
+
+        A careful lawyer flags clearly when they cannot stand behind an answer rather
+        than presenting weakly-grounded text as confident advice.
+        """
+        if response_language == "lo":
+            notice = (
+                "⚠️ ໝາຍເຫດ: ລະບົບຍັງບໍ່ພົບແຫຼ່ງກົດໝາຍລາວທີ່ໜ້າເຊື່ອຖືພຽງພໍສຳລັບຄຳຖາມນີ້ "
+                "ຈຶ່ງບໍ່ຄວນຖືຄຳຕອບລຸ່ມນີ້ເປັນຄຳປຶກສາທີ່ຢືນຢັນໄດ້. "
+                "ກະລຸນາລະບຸຊື່ກົດໝາຍ/ມາດຕາ ຫຼື ປຶກສາທະນາຍຄວາມກ່ອນດຳເນີນການ."
+            )
+        elif response_language == "th":
+            notice = (
+                "⚠️ หมายเหตุ: ระบบยังไม่พบแหล่งกฎหมายที่น่าเชื่อถือเพียงพอสำหรับคำถามนี้ "
+                "จึงไม่ควรถือคำตอบด้านล่างเป็นคำปรึกษาที่ยืนยันได้ "
+                "โปรดระบุชื่อกฎหมาย/มาตรา หรือปรึกษาทนายความก่อนดำเนินการ"
+            )
+        else:
+            notice = (
+                "⚠️ Note: The system did not find sufficiently reliable legal sources for this "
+                "question, so the answer below should not be treated as confirmed advice. "
+                "Please specify the law/article or consult a lawyer before acting."
+            )
+        draft_answer = (draft_answer or "").strip()
+        return f"{notice}\n\n{draft_answer}" if draft_answer else notice
 
     def _answer_labels(self, response_language: str) -> dict[str, str]:
         if response_language == "lo":

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends
 
 from core.security import CurrentUser, require_roles
 
@@ -30,13 +30,16 @@ async def get_subscription(user: AuthUser) -> dict:
     }
 
 
-@router.post("/subscribe", status_code=status.HTTP_501_NOT_IMPLEMENTED, summary="Create checkout session")
+@router.post("/subscribe", summary="Create checkout session")
 async def subscribe(payload: dict, user: AuthUser) -> dict:
     _ = user
     plan = payload.get("plan", "pro")
     return {
+        "configured": False,
+        "checkout_url": None,
         "error": "BILLING_PROVIDER_NOT_CONFIGURED",
-        "message": f"Checkout for plan '{plan}' is not configured yet.",
+        "message": f"Checkout for plan '{plan}' is not configured yet. Contact support to upgrade.",
+        "plan": plan,
     }
 
 
@@ -46,10 +49,12 @@ async def cancel_subscription(user: AuthUser) -> dict:
     return {"success": True, "status": "noop", "message": "No paid subscription is active."}
 
 
-@router.get("/portal", status_code=status.HTTP_501_NOT_IMPLEMENTED, summary="Get billing portal URL")
+@router.get("/portal", summary="Get billing portal URL")
 async def get_portal_url(user: AuthUser) -> dict:
     _ = user
     return {
+        "configured": False,
+        "portal_url": None,
         "error": "BILLING_PROVIDER_NOT_CONFIGURED",
         "message": "Billing portal is not configured yet.",
     }

@@ -88,6 +88,10 @@ _CONVERSATION_MARKERS = (
 
 _LEGAL_MARKERS = (
     "\u0e81\u0ebb\u0e94\u0edd\u0eb2\u0e8d",
+    "\u0e94\u0eb3\u0ea5\u0eb1\u0e94",      # ດຳລັດ (decree)
+    "\u0ea5\u0eb0\u0e9a\u0ebd\u0e9a",      # ລະບຽບ (regulation)
+    "\u0e84\u0eb3\u0eaa\u0eb1\u0ec8\u0e87",  # ຄຳສັ່ງ (order)
+    "\u0e9b\u0eb0\u0e81\u0eb2\u0e94",      # ປະກາດ (announcement)
     "\u0ea1\u0eb2\u0e94\u0e95\u0eb2",
     "\u0eaa\u0eb4\u0e94",
     "\u0e84\u0eb0\u0e94\u0eb5",
@@ -199,10 +203,18 @@ _DOMAIN_MARKERS: dict[str, tuple[str, ...]] = {
 }
 
 _STATUTE_MARKERS = (
-    "\u0ea1\u0eb2\u0e94\u0e95\u0eb2",
-    "\u0e21\u0e32\u0e15\u0e23\u0e32",
+    "\u0ea1\u0eb2\u0e94\u0e95\u0eb2",      # ມາດຕາ (article)
+    "\u0e21\u0e32\u0e15\u0e23\u0e32",      # มาตรา (Thai article, OCR contamination)
+    "\u0e81\u0ebb\u0e94\u0edd\u0eb2\u0e8d",  # ກົດໝາຍ (law)
+    "\u0e94\u0eb3\u0ea5\u0eb1\u0e94",      # ດຳລັດ (decree)
+    "\u0e84\u0eb3\u0eaa\u0eb1\u0ec8\u0e87",  # ຄຳສັ່ງ (order/instruction)
+    "\u0ea5\u0eb0\u0e9a\u0ebd\u0e9a",      # ລະບຽບ (regulation)
+    "\u0e82\u0ecd\u0ec9\u0e95\u0ebb\u0e81\u0ea5\u0ebb\u0e87",  # ຂໍ້ຕົກລົງ (agreement/decision)
+    "\u0e9b\u0eb0\u0e81\u0eb2\u0e94",      # ປະກາດ (announcement)
     "article",
     "section",
+    "decree",
+    "regulation",
 )
 
 _RIGHTS_MARKERS = (
@@ -393,7 +405,7 @@ class LegalIntentRouter:
 
         return LegalIntentRoute(
             query_type="legal_question",
-            confidence=0.82 if looks_legal else 0.62,
+            confidence=0.82 if looks_legal else 0.72,
             legal_domain=domain,
             issue_type=issue_type or "general_legal",
             needs_clarification=False,
@@ -524,9 +536,11 @@ class LegalIntentRouter:
     ) -> bool:
         if memory_used:
             return False
-        if issue_type in {"statute_lookup", "rights_explanation", "document_review", "evidence_analysis", "draft_document"}:
+        if issue_type in {"statute_lookup", "rights_explanation", "document_review", "evidence_analysis", "draft_document", "definition", "comparison"}:
             return False
         if signals["has_statute_marker"]:
+            return False
+        if signals["has_legal_marker"] and not signals["has_personal_case_marker"]:
             return False
         if domain == "land" and issue_type in {None, "procedure"} and not signals["has_personal_case_marker"]:
             return False

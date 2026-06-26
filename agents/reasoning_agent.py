@@ -56,10 +56,11 @@ _DISPLAY_TEXT_REPLACEMENTS = (
 
 # ── System prompt ──────────────────────────────────────────────────────────────
 _IRAC_SYSTEM_PROMPT = """
-You are a senior legal advisor with 30+ years of experience in Thai and Lao law.
+You are a senior Lao PDR legal advisor with 30+ years of experience in Lao law. (You may also handle Thai law only when the user explicitly asks about Thailand.)
 
 For Lao PDR legal questions, prioritize legislation from the Lao PDR Official Gazette or ingested official Lao legal documents. Treat Lao PDR as a civil-law jurisdiction where statutes, regulations, decrees, and promulgated legislation are primary. Do not treat court decisions as binding precedent unless the retrieved context explicitly says so. If an English translation conflicts with Lao text, prefer the Lao official text and flag translation uncertainty.
 Use LEGAL QUESTION ANALYSIS as the issue-spotting and research brief. Authority hints inside that analysis are search hypotheses only; do not cite or rely on them unless the same authority appears in the retrieved legal context.
+Users may ask in informal, vague, or conversational language. Infer the legal issue from context and answer the underlying legal question directly. Do not refuse just because the wording is imprecise when retrieved statutes are available.
 Use CONVERSATION MEMORY only to understand prior facts, user goals, follow-up questions, and what has already been explained. Never treat conversation memory as legal authority.
 
 ═══ STRICT GENERATION RULES ═══
@@ -99,10 +100,10 @@ Use CONVERSATION MEMORY only to understand prior facts, user goals, follow-up qu
       ],
       "precedents": [
         {
-          "case_no": "ฎ. XXXX/XXXX",
+          "case_no": "case number exactly as shown in CONTEXT",
           "court": "court name",
           "relevance": "what principle it establishes",
-          "outcome": "ผู้ฟ้องชนะ|ผู้ฟ้องแพ้",
+          "outcome": "outcome as found in context",
           "graph_path": "citation chain note"
         }
       ]
@@ -134,8 +135,9 @@ Use CONVERSATION MEMORY only to understand prior facts, user goals, follow-up qu
 }
 
 ═══ LANGUAGE ═══
-Respond in the same language as the user query (Thai/English/Lao).
-Legal citations always use official section/case numbers as-is.
+This is a Lao PDR legal assistant. Default to Lao (ພາສາລາວ) for all user-facing text unless a LANGUAGE OVERRIDE says otherwise.
+Write natural, professional Lao legal prose. Keep Lao spelling, tone marks, and legal terms intact and correct.
+Legal citations always use official law names, section numbers, and case numbers exactly as shown in CONTEXT.
 """
 
 _CONTEXT_TEMPLATE = """
@@ -221,6 +223,19 @@ class IracReasoningAgent(BaseAgent):
             parsed["_tokens"] = 0
             return parsed
 
+        # Hard grounding gate: a real lawyer does not opine on the law without sources.
+        # If there is no retrieved statute/case AND no uploaded document/evidence to
+        # analyse, refuse to invent an answer and return an honest insufficient-context
+        # response instead of letting the LLM hallucinate.
+        if self._has_no_grounding(research, document, evidence):
+            log.info("reasoning.skipped_llm_no_grounding")
+            parsed = self._insufficient_context_response(
+                question,
+                "no_retrieved_legal_context",
+            )
+            parsed["_tokens"] = 0
+            return parsed
+
         focused_response = await self._focused_statutory_response(
             question=question,
             research=research,
@@ -263,6 +278,14 @@ class IracReasoningAgent(BaseAgent):
 
         return parsed
 
+    @staticmethod
+    def _has_no_grounding(research: dict | None, document: dict | None, evidence: dict | None) -> bool:
+        """True when there is nothing factual to reason from (no statutes/cases/docs/evidence)."""
+        has_research = bool(research and research.get("retrieved_documents"))
+        has_document = bool(document and (document.get("clauses") or document.get("summary")))
+        has_evidence = bool(evidence and evidence.get("items"))
+        return not (has_research or has_document or has_evidence)
+
     def _build_context(
         self,
         *,
@@ -282,6 +305,7 @@ class IracReasoningAgent(BaseAgent):
                     "jurisdiction": query_analysis.get("jurisdiction"),
                     "practice_area": query_analysis.get("practice_area"),
                     "issue_type": query_analysis.get("issue_type"),
+                    "question_style": query_analysis.get("question_style"),
                     "legal_issues": query_analysis.get("legal_issues"),
                     "material_facts": query_analysis.get("material_facts"),
                     "missing_facts": query_analysis.get("missing_facts"),
@@ -630,13 +654,6 @@ class IracReasoningAgent(BaseAgent):
         title = candidate["title"]
         section = candidate["section"]
         excerpt = self._clean_statute_excerpt(candidate["statute_text"], max_chars=700)
-        if language in {"lo", "th"}:
-            return {
-                "recommendation": f"{title} {section}: {excerpt}",
-                "analysis": excerpt,
-                "action_steps": [],
-                "confidence": 0.72,
-            }
         if language == "lo":
             recommendation = f"ອີງຕາມ {title} {section}, ຄຳຕອບຕ້ອງອີງໃສ່ຂໍ້ຄວາມຂອງມາດຕານີ້."
             analysis = f"ຂໍ້ຄວາມທີ່ຄົ້ນພົບລະບຸວ່າ: {excerpt}"

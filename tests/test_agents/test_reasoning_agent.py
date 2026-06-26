@@ -35,6 +35,22 @@ VALID_IRAC_JSON = json.dumps({
     "citations": [{"ref": "มาตรา 420", "status": "UNVERIFIED"}],
 })
 
+# Reasoning now requires grounding (retrieved statutes / docs / evidence) before it
+# will call the LLM. Parsing-behaviour tests supply a minimal grounded research payload.
+GROUNDED_RESEARCH = {
+    "retrieved_documents": [
+        {
+            "type": "law",
+            "title": "test law",
+            "section": "มาตรา 420",
+            "content": "test statutory content",
+            "final_score": 5.0,
+        }
+    ],
+    "case_graph_context": [],
+    "memory_highlights": {},
+}
+
 LAND_RIGHT_PROTECTION_Q = (
     "\u0e9c\u0eb9\u0ec9\u0ec4\u0e94\u0ec9\u0eae\u0eb1\u0e9a\u0eaa\u0eb4\u0e94"
     "\u0e99\u0eb3\u0ec3\u0e8a\u0ec9\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99 "
@@ -72,7 +88,7 @@ class TestIracReasoningAgent:
     async def test_returns_valid_irac_structure(self, agent):
         result = await agent.run(
             question="ฉันถูกนายจ้างไล่ออกไม่เป็นธรรม ต้องทำอย่างไร",
-            research={"retrieved_documents": [], "case_graph_context": [], "memory_highlights": {}},
+            research=GROUNDED_RESEARCH,
             document=None,
             evidence=None,
             memory={"empty": True},
@@ -100,7 +116,7 @@ class TestIracReasoningAgent:
         ))
         result = await agent.run(
             question="test question",
-            research=None,
+            research=GROUNDED_RESEARCH,
             document=None,
             evidence=None,
             memory={"empty": True},
@@ -118,7 +134,7 @@ class TestIracReasoningAgent:
         ))
         result = await agent.run(
             question="ປະເພດດິນອຸດສາຫະກຳສາມາດປຸກສ້າງໄດ້ບໍ?",
-            research=None,
+            research=GROUNDED_RESEARCH,
             document=None,
             evidence=None,
             memory={"empty": True},
@@ -136,7 +152,7 @@ class TestIracReasoningAgent:
         ))
         result = await agent.run(
             question="test",
-            research=None,
+            research=GROUNDED_RESEARCH,
             document=None,
             evidence=None,
             memory={"empty": True},
@@ -189,7 +205,7 @@ class TestIracReasoningAgent:
         ))
         result = await agent.run(
             question="test",
-            research=None,
+            research=GROUNDED_RESEARCH,
             document=None,
             evidence=None,
             memory={"empty": True},

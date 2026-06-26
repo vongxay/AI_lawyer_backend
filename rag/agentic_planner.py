@@ -74,6 +74,7 @@ class AgenticRetrievalPlanner:
             )
         ]
         queries.extend(self._authority_hint_queries(question, canonical, intent, analysis, priority=0))
+        queries.extend(self._article_target_queries(question, canonical, analysis, priority=0))
         queries.extend(self._analysis_search_phrase_queries(canonical, intent, analysis, priority=1))
 
         if canonical == "laos":
@@ -307,7 +308,7 @@ class AgenticRetrievalPlanner:
     ) -> list[RetrievalQuery]:
         phrases = analysis.get("search_phrases") if isinstance(analysis.get("search_phrases"), list) else []
         queries: list[RetrievalQuery] = []
-        for index, phrase in enumerate(phrases[1:4], start=1):
+        for index, phrase in enumerate(phrases[1:7], start=1):
             query = str(phrase).strip()
             if not query:
                 continue
@@ -385,6 +386,32 @@ class AgenticRetrievalPlanner:
             "criminal": "criminal offence penalty detention police prosecutor",
         }
         return terms.get(intent, "civil code obligation contract right duty")
+
+    def _article_target_queries(
+        self,
+        question: str,
+        jurisdiction: str | None,
+        analysis: dict[str, Any],
+        *,
+        priority: int,
+    ) -> list[RetrievalQuery]:
+        articles = [str(item).strip() for item in (analysis.get("articles") or []) if str(item).strip()]
+        if not articles:
+            return []
+
+        queries: list[RetrievalQuery] = []
+        for article in articles[:3]:
+            queries.append(
+                RetrievalQuery(
+                    query=f"{question} \u0ea1\u0eb2\u0e94\u0e95\u0eb2 {article}",
+                    purpose=f"article_target_{article}",
+                    jurisdiction=jurisdiction,
+                    priority=priority,
+                    required=True,
+                    metadata={"article": article},
+                )
+            )
+        return queries
 
     def _section_terms(self, question: str) -> str | None:
         words = question.replace("\n", " ").split()

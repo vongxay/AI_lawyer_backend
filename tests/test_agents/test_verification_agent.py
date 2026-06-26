@@ -60,23 +60,35 @@ class TestCitationVerificationAgent:
         verified = result.data["citations"]
         assert all(c["status"] == "UNVERIFIED" for c in verified)
 
-    async def test_confidence_decreases_with_rejections(self, agent_no_db, mock_llm_plausible):
-        settings = get_settings()
-        previous = settings.llm_verify_citations_with_llm
-        settings.llm_verify_citations_with_llm = True
-        mock_llm_plausible.generate = AsyncMock(return_value=LlmResult(
-            text=json.dumps([
-                {"ref": "fake citation 123", "plausible": False, "reason": "Does not exist"},
-            ]),
-            model="stub", provider="stub",
-        ))
-        try:
-            agent_no_db._llm = mock_llm_plausible
-            citations = [{"ref": "fake citation 123", "status": "UNVERIFIED"}]
-            result = await agent_no_db.run(citations=citations)
-            assert result.ok
-            assert result.data["citations"][0]["status"] == "REJECTED"
-            assert result.data["rejection_rate"] == 1.0
-            assert result.confidence == 0.0
-        finally:
-            settings.llm_verify_citations_with_llm = previous
+    async def test_rejects_citation_not_grounded_in_context(self, agent_no_db):
+        """Closed-loop: a citation absent from retrieved context is REJECTED as hallucinated."""
+        citations = [{"ref": "ມາດຕາ 123", "status": "UNVERIFIED"}]
+        retrieved_documents = [
+            {
+                "type": "law",
+                "title": "ກົດໝາຍວ່າດ້ວຍທີ່ດິນ",
+                "section": "ມາດຕາ 58",
+                "content": "ມາດຕາ 58. ສິດນຳໃຊ້ທີ່ດິນ...",
+            }
+        ]
+        result = await agent_no_db.run(citations=citations, retrieved_documents=retrieved_documents)
+        assert result.ok
+        assert result.data["citations"][0]["status"] == "REJECTED"
+        assert result.data["rejection_rate"] == 1.0
+        assert result.confidence == 0.0
+
+    async def test_grounded_citation_marked_unverified(self, agent_no_db):
+        """A citation present in retrieved context is grounded → UNVERIFIED (not rejected)."""
+        citations = [{"ref": "ມາດຕາ 58", "status": "UNVERIFIED"}]
+        retrieved_documents = [
+            {
+                "type": "law",
+                "title": "ກົດໝາຍວ່າດ້ວຍທີ່ດິນ",
+                "section": "ມາດຕາ 58",
+                "content": "ມາດຕາ 58. ສິດນຳໃຊ້ທີ່ດິນ...",
+            }
+        ]
+        result = await agent_no_db.run(citations=citations, retrieved_documents=retrieved_documents)
+        assert result.ok
+        assert result.data["citations"][0]["status"] == "UNVERIFIED"
+        assert result.data["rejection_rate"] == 0.0

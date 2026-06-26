@@ -20,12 +20,13 @@ from typing import Any
 
 from agents.base_agent import BaseAgent
 from core.config import get_settings
+from core.jurisdiction import response_language_instruction
 from core.logging import get_logger
 
 log = get_logger(__name__)
 
 _EVIDENCE_SYSTEM_PROMPT = """
-You are a senior legal evidence analyst and forensics expert with expertise in Thai and Lao court procedure.
+You are a senior legal evidence analyst and forensics expert with expertise in Lao PDR court procedure (and Thai procedure only when explicitly asked).
 
 Analyse the provided evidence and return strict JSON:
 {
@@ -72,6 +73,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
         evidence_files: list[EvidenceFile] | None = None,
         case_context: str | None = None,
         model_override: str | None = None,
+        response_language: str | None = "lo",
         **kwargs,
     ) -> dict[str, Any]:
         if not evidence_files:
@@ -85,6 +87,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
 
         settings = get_settings()
         evidence_model = model_override or settings.model_evidence
+        language_directive = response_language_instruction(response_language)
         results: list[dict] = []
         total_tokens = 0
 
@@ -94,6 +97,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
                 question=question,
                 case_context=case_context,
                 model=evidence_model,
+                language_directive=language_directive,
             )
             results.append(item_result)
             total_tokens += item_result.pop("_tokens", 0)
@@ -122,18 +126,19 @@ class EvidenceAnalyzerAgent(BaseAgent):
         question: str,
         case_context: str | None,
         model: str,
+        language_directive: str = "",
     ) -> dict[str, Any]:
         ctx = f"\nCase context: {case_context}" if case_context else ""
         file_type = self._classify_file(ev_file.content_type)
 
         if file_type == "audio":
-            return await self._analyze_audio(ev_file, question, ctx, model)
+            return await self._analyze_audio(ev_file, question, ctx, model, language_directive)
         elif file_type == "image":
-            return await self._analyze_image(ev_file, question, ctx, model)
+            return await self._analyze_image(ev_file, question, ctx, model, language_directive)
         else:
-            return await self._analyze_text_evidence(ev_file, question, ctx, model)
+            return await self._analyze_text_evidence(ev_file, question, ctx, model, language_directive)
 
-    async def _analyze_image(self, ev_file: EvidenceFile, question: str, ctx: str, model: str) -> dict:
+    async def _analyze_image(self, ev_file: EvidenceFile, question: str, ctx: str, model: str, language_directive: str = "") -> dict:
         user_msg = (
             f"Legal question: {question}{ctx}\n\n"
             f"File: {ev_file.filename}\n"
@@ -141,7 +146,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
         )
         result = await self._call_llm(
             model=model,
-            system=_EVIDENCE_SYSTEM_PROMPT,
+            system=f"{_EVIDENCE_SYSTEM_PROMPT}\n\nLANGUAGE OVERRIDE:\n{language_directive}",
             user_message=user_msg,
             max_tokens=get_settings().llm_max_tokens_evidence,
         )
@@ -149,7 +154,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
         parsed.update({"filename": ev_file.filename, "_tokens": result.total_tokens})
         return parsed
 
-    async def _analyze_audio(self, ev_file: EvidenceFile, question: str, ctx: str, model: str) -> dict:
+    async def _analyze_audio(self, ev_file: EvidenceFile, question: str, ctx: str, model: str, language_directive: str = "") -> dict:
         # In production: first run Whisper transcription via audio_service
         # Until transcription is connected, only analyse caller-provided text content.
         transcript = ev_file.content if isinstance(ev_file.content, str) else "[Audio file — transcription required]"
@@ -160,7 +165,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
         )
         result = await self._call_llm(
             model=model,
-            system=_AUDIO_ANALYSIS_PROMPT,
+            system=f"{_AUDIO_ANALYSIS_PROMPT}\n\nLANGUAGE OVERRIDE:\n{language_directive}",
             user_message=user_msg,
             max_tokens=get_settings().llm_max_tokens_evidence,
         )
@@ -172,7 +177,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
         })
         return parsed
 
-    async def _analyze_text_evidence(self, ev_file: EvidenceFile, question: str, ctx: str, model: str) -> dict:
+    async def _analyze_text_evidence(self, ev_file: EvidenceFile, question: str, ctx: str, model: str, language_directive: str = "") -> dict:
         content = ev_file.content if isinstance(ev_file.content, str) else ev_file.content.decode("utf-8", errors="replace")
         user_msg = (
             f"Legal question: {question}{ctx}\n\n"
@@ -181,7 +186,7 @@ class EvidenceAnalyzerAgent(BaseAgent):
         )
         result = await self._call_llm(
             model=model,
-            system=_EVIDENCE_SYSTEM_PROMPT,
+            system=f"{_EVIDENCE_SYSTEM_PROMPT}\n\nLANGUAGE OVERRIDE:\n{language_directive}",
             user_message=user_msg,
             max_tokens=get_settings().llm_max_tokens_evidence,
         )

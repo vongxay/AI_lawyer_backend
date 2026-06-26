@@ -170,6 +170,27 @@ def term_matches_text(term: str, text: str, *, normalised_text: str | None = Non
     return normalised_value in folded
 
 
+def prepare_lao_fts_query(query: str, *, jurisdiction: str | None = None) -> str:
+    """Normalize a user query before Lao FTS hybrid search.
+
+    Mirrors the SQL ``normalize_lao_legal_fts_text`` / token-boundary logic so
+    Python-side keyword fallback and the Supabase RPC stay aligned.
+    """
+    text = str(query or "").strip()
+    if not text:
+        return text
+
+    normalized = normalise_search_text(text)
+    canonical = (jurisdiction or "").strip().casefold()
+    use_lao = canonical in {"laos", "lao", "lao-pdr"} or any("\u0e80" <= ch <= "\u0eff" for ch in text)
+    if use_lao:
+        terms = extract_lao_legal_terms(text)
+        extras = [term for term in terms[:8] if normalise_search_text(term) not in normalized]
+        if extras:
+            normalized = f"{normalized} {' '.join(extras)}".strip()
+    return normalized or text
+
+
 def table_of_contents_penalty(text: str) -> float:
     sample = str(text or "")[:2500]
     if not sample.strip():
