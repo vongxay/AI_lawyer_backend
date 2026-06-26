@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
+from core.config import get_settings
 from core.jurisdiction import canonical_jurisdiction, contains_lao_script, contains_thai_script
 from core.logging import get_logger
 from rag.legal_text_matching import (
@@ -163,33 +164,36 @@ class Retriever:
         tenant_id: str | None,
         top_k: int,
     ) -> list[dict[str, Any]]:
+        settings = get_settings()
+        effective_tenant_id = tenant_id or settings.default_tenant_id
         params: dict[str, Any] = {
             "query_text": query,
             "match_count": top_k,
             "rrf_k": 60,
             "p_status": "active",
             "p_review_status": "approved",
+            "p_tenant_id": effective_tenant_id,
+            "p_law_category": None,
         }
         if embedding:
             params["query_embedding"] = embedding
         if jurisdiction:
             params["p_jurisdiction"] = jurisdiction
-        if tenant_id and self._chunk_search_supports_tenant_param is not False:
-            params["p_tenant_id"] = tenant_id
 
         try:
             result = await self._supabase.rpc("hybrid_document_chunk_search", params).execute()
-            if "p_tenant_id" in params:
-                self._chunk_search_supports_tenant_param = True
+            self._chunk_search_supports_tenant_param = True
             return [self._normalise_row({**row, "retrieval_source": "chunk_rpc"}) for row in (result.data or [])]
         except Exception as exc:
-            if tenant_id and "p_tenant_id" in str(exc):
-                self._chunk_search_supports_tenant_param = False
-                log.warning(
-                    "retriever.chunk_search.tenant_param_unavailable",
-                    reason="p_tenant_id_not_available_in_database_function",
-                )
-                return []
+            if "p_law_category" in str(exc) or "p_tenant_id" in str(exc):
+                fallback_params = {key: value for key, value in params.items() if key not in {"p_law_category", "p_tenant_id"}}
+                try:
+                    result = await self._supabase.rpc("hybrid_document_chunk_search", fallback_params).execute()
+                    self._chunk_search_supports_tenant_param = False
+                    return [self._normalise_row({**row, "retrieval_source": "chunk_rpc"}) for row in (result.data or [])]
+                except Exception as fallback_exc:
+                    log.warning("retriever.chunk_search.failed", error=str(fallback_exc))
+                    return []
 
             log.warning("retriever.chunk_search.failed", error=str(exc))
             return []
@@ -246,9 +250,11 @@ class Retriever:
         return sorted(rows, key=self._row_score, reverse=True)[:top_k]
 
     def _keyword_tenant_scopes(self, tenant_id: str | None) -> tuple[str | None, ...]:
+        default_tenant_id = get_settings().default_tenant_id
+        effective = tenant_id or default_tenant_id
         if tenant_id:
-            return (tenant_id, None)
-        return (None,)
+            return (tenant_id, default_tenant_id, None)
+        return (default_tenant_id, None)
 
     def _document_chunks_keyword_request(
         self,

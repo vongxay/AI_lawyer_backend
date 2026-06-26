@@ -7,11 +7,14 @@ from services.ingestion_service import (
     _is_official_lao_source,
     _looks_like_garbled_pdf_text,
     _resolve_tesseract_languages,
+    _section_part_totals,
     _source_authority,
+    assess_chunk_coverage,
     assess_lao_legal_text_quality,
     assess_legal_structure,
     chunk_legal_text,
     extract_text_with_metadata,
+    merge_overlapping_chunk_contents,
     normalise_lao_legal_text,
 )
 
@@ -161,6 +164,83 @@ def test_chunking_keeps_heading_with_long_lao_article_body() -> None:
     assert chunks[0].content.startswith(f"{heading}\n\n")
     assert chunks[0].content != heading
     assert all(chunk.content != heading for chunk in chunks)
+    assert any(chunk.section_ref == f"{heading} (continued 2)" for chunk in chunks)
+    assert all(chunk.content.startswith(heading) for chunk in chunks if chunk.section_ref and "continued" in chunk.section_ref)
+
+
+def test_chunking_covers_long_lao_article_content_without_dropping_markers() -> None:
+    heading = "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 9"
+    paragraphs = [
+        f"\u0e82\u0ecd\u0ec9\u0e84\u0ea7\u0eb2\u0ea1 marker-{index:03d} "
+        + ("\u0e9a\u0eb8\u0e81\u0e84\u0ebb\u0e99 \u0ec1\u0ea5\u0eb0 \u0e81\u0eb2\u0e99\u0e88\u0eb1\u0e94\u0e95\u0eb1\u0ec9\u0e87 " * 8)
+        for index in range(24)
+    ]
+    text = "\n\n".join([heading, *paragraphs])
+
+    chunks = chunk_legal_text(text, max_chars=700, overlap=120)
+    coverage = assess_chunk_coverage(text, chunks)
+    chunk_haystack = "\n\n".join(chunk.content for chunk in chunks)
+    totals = _section_part_totals(chunks)
+
+    assert coverage.coverage_ratio >= 0.97
+    assert coverage.warnings == ()
+    assert totals[heading] == len(chunks)
+    for index in range(24):
+        assert f"marker-{index:03d}" in chunk_haystack
+
+
+def test_reconstructs_long_lao_article_from_continuation_chunks() -> None:
+    heading = "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 9"
+    paragraphs = [
+        f"\u0e82\u0ecd\u0ec9\u0e84\u0ea7\u0eb2\u0ea1 marker-{index:03d} "
+        + ("\u0e9a\u0eb8\u0e81\u0e84\u0ebb\u0e99 \u0ec1\u0ea5\u0eb0 \u0e81\u0eb2\u0e99\u0e88\u0eb1\u0e94\u0e95\u0eb1\u0ec9\u0e87 " * 7)
+        for index in range(18)
+    ]
+    text = "\n\n".join([heading, *paragraphs])
+
+    chunks = chunk_legal_text(text, max_chars=620, overlap=120)
+    merged = merge_overlapping_chunk_contents(
+        [chunk.content for chunk in chunks],
+        section_ref_base=heading,
+    )
+
+    assert len(chunks) > 1
+    assert merged.startswith(heading)
+    assert merged.count(heading) == 1
+    for index in range(18):
+        assert f"marker-{index:03d}" in merged
+
+
+def test_chunking_supports_lao_digits_and_headings_without_spaces() -> None:
+    chunks = chunk_legal_text("\n\n".join([
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2\u0ed1\n\u0e82\u0ecd\u0ec9\u0e84\u0ea7\u0eb2\u0ea1",
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2\u0ed2\n\u0e82\u0ecd\u0ec9\u0e84\u0ea7\u0eb2\u0ea1",
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb23\n\u0e82\u0ecd\u0ec9\u0e84\u0ea7\u0eb2\u0ea1",
+    ]))
+
+    report = assess_legal_structure(chunks)
+
+    assert report.article_count == 3
+    assert report.max_article_number == 3
+    assert report.missing_articles == ()
+
+
+def test_chunking_recovers_inline_lao_article_headings_from_ocr() -> None:
+    text = (
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 1 \u0e88\u0eb8\u0e94\u0e9b\u0eb0\u0eaa\u0ebb\u0e87 "
+        "\u0e82\u0ecd\u0ec9\u0e84\u0ea7\u0eb2\u0ea1\u0e8d\u0eb2\u0ea7\u0e9e\u0ecd\u0eaa\u0ebb\u0ea1\u0e84\u0ea7\u0e99. "
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 2 \u0e82\u0ead\u0e9a\u0ec0\u0e82\u0e94 "
+        "\u0e82\u0ecd\u0ec9\u0e84\u0ea7\u0eb2\u0ea1\u0e8d\u0eb2\u0ea7\u0e9e\u0ecd\u0eaa\u0ebb\u0ea1\u0e84\u0ea7\u0e99. "
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 3 \u0e99\u0eb4\u0e8d\u0eb2\u0ea1"
+    )
+
+    chunks = chunk_legal_text(text, max_chars=600, overlap=60)
+
+    assert [chunk.section_ref for chunk in chunks] == [
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 1",
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 2",
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 3",
+    ]
 
 
 def test_chunking_repairs_split_lao_article_numbers_from_ocr() -> None:
@@ -217,6 +297,37 @@ def test_legal_structure_flags_missing_duplicate_and_out_of_order_articles() -> 
     assert any("out of order" in warning for warning in report.warnings)
 
 
+def test_legal_structure_does_not_assume_partial_high_article_upload_starts_at_one() -> None:
+    chunks = chunk_legal_text("\n\n".join([
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 67\n\u0e82\u0ecd\u0ec9\u0e84\u0ea7\u0eb2\u0ea1",
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 68\n\u0e82\u0ecd\u0ec9\u0e84\u0ea7\u0eb2\u0ea1",
+    ]))
+
+    report = assess_legal_structure(chunks)
+
+    assert report.article_count == 2
+    assert report.max_article_number == 68
+    assert report.missing_articles == ()
+
+
+def test_legal_structure_allows_front_matter_article_sequence_restart() -> None:
+    chunks = chunk_legal_text("\n\n".join([
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 1\n\u0e9b\u0eb0\u0e81\u0eb2\u0e94\u0ec3\u0e8a\u0ec9",
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 2\n\u0e9c\u0ebb\u0e99\u0e9a\u0eb1\u0e87\u0e84\u0eb1\u0e9a",
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 1\n\u0e9a\u0ebb\u0e94\u0e9a\u0eb1\u0e99\u0e8d\u0eb1\u0e94\u0e97\u0ebb\u0ec8\u0ea7\u0ec4\u0e9b",
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 2\n\u0e99\u0eb4\u0e8d\u0eb2\u0ea1",
+        "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 3\n\u0eab\u0ebc\u0eb1\u0e81\u0e81\u0eb2\u0e99",
+    ]))
+
+    report = assess_legal_structure(chunks)
+
+    assert report.article_count == 3
+    assert report.max_article_number == 3
+    assert report.duplicate_sections == ()
+    assert report.out_of_order_sections == 0
+    assert report.warnings == ()
+
+
 def test_quality_prefers_clean_lao_legal_text() -> None:
     clean = (
         "\u0ea1\u0eb2\u0e94\u0e95\u0eb2 61 "
@@ -260,7 +371,7 @@ def test_resolves_lao_ocr_languages_without_thai_for_lao_jurisdiction(monkeypatc
     resolved = _resolve_tesseract_languages(FakeTesseract(), errors=errors, jurisdiction="laos")
 
     assert resolved == "lao+eng"
-    assert any("skipped: tha" in error for error in errors)
+    assert errors == []
 
 
 def test_refuses_lao_ocr_when_lao_traineddata_is_missing(monkeypatch) -> None:

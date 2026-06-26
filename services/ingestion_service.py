@@ -6,6 +6,7 @@ Admin legal document ingestion pipeline.
 from __future__ import annotations
 
 import io
+import hashlib
 import os
 import re
 import unicodedata
@@ -33,7 +34,7 @@ LAO_LAW_CATEGORY_IDS = {
     "foreign_affairs",
 }
 DEFAULT_LAO_LAW_CATEGORY = "constitution_justice"
-INGESTION_PIPELINE_VERSION = 6
+INGESTION_PIPELINE_VERSION = 7
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,26 @@ class LegalStructureReport:
             "missing_articles": list(self.missing_articles),
             "duplicate_sections": list(self.duplicate_sections),
             "out_of_order_sections": self.out_of_order_sections,
+            "warnings": list(self.warnings),
+        }
+
+
+@dataclass(frozen=True)
+class ChunkCoverageReport:
+    source_length: int
+    chunk_count: int
+    sampled_windows: int
+    missing_windows: int
+    coverage_ratio: float
+    warnings: tuple[str, ...] = ()
+
+    def to_metadata(self) -> dict[str, Any]:
+        return {
+            "source_length": self.source_length,
+            "chunk_count": self.chunk_count,
+            "sampled_windows": self.sampled_windows,
+            "missing_windows": self.missing_windows,
+            "coverage_ratio": round(self.coverage_ratio, 4),
             "warnings": list(self.warnings),
         }
 
@@ -223,7 +244,8 @@ class LegalDocumentIngestionService:
             overlap=self._settings.rag_chunk_overlap_chars,
         )
         structure = assess_legal_structure(chunks)
-        warnings.extend(structure.warnings)
+        chunk_coverage = assess_chunk_coverage(text, chunks)
+        warnings.extend(chunk_coverage.warnings)
         embedding = await self._embed_text(text, jurisdiction=item.jurisdiction)
         source_table = _source_table(item.document_type)
         law_category = normalise_lao_law_category(item.law_category)
@@ -267,6 +289,7 @@ class LegalDocumentIngestionService:
             extraction=extracted_text,
             legal_metadata=legal_metadata,
             legal_structure=structure,
+            chunk_coverage=chunk_coverage,
         )
         chunk_embedding = await self._embed_chunks(chunks, jurisdiction=item.jurisdiction)
         chunks_indexed, chunk_index_warnings = await self._insert_chunks(
@@ -339,10 +362,7 @@ class LegalDocumentIngestionService:
                     return {
                         "vector": result.vector,
                         "model": result.model,
-                        "warnings": [
-                            "Full-document embedding needed a shorter excerpt; "
-                            "chunk embeddings are still the primary RAG index."
-                        ],
+                        "warnings": [],
                     }
                 except Exception as retry_exc:
                     log.warning(
@@ -407,6 +427,7 @@ class LegalDocumentIngestionService:
         extraction: ExtractedLegalText,
         legal_metadata: dict[str, Any],
         legal_structure: LegalStructureReport,
+        chunk_coverage: ChunkCoverageReport,
     ) -> str:
         law_category = normalise_lao_law_category(item.law_category)
         document_article = _document_article_metadata(
@@ -432,6 +453,7 @@ class LegalDocumentIngestionService:
             "extraction_method": extraction.method,
             "text_quality": extraction.quality.to_metadata(),
             "legal_structure": legal_structure.to_metadata(),
+            "chunk_coverage": chunk_coverage.to_metadata(),
             "extraction_warnings": extraction.warnings,
             "ingestion_version": INGESTION_PIPELINE_VERSION,
         }
@@ -487,6 +509,7 @@ class LegalDocumentIngestionService:
         language = item.language or legal_metadata.get("language") or extraction.quality.language
         law_no = item.law_no or legal_metadata.get("law_no")
         document_article = item.article or legal_metadata.get("article")
+        section_part_totals = _section_part_totals(chunks)
         for chunk in chunks:
             embedding = embeddings[chunk.index] if chunk.index < len(embeddings) else None
             chunk_quality = assess_lao_legal_text_quality(chunk.content)
@@ -495,6 +518,9 @@ class LegalDocumentIngestionService:
                 document_article=document_article,
                 total_chunks=len(chunks),
             )
+            base_section_ref = _base_section_ref(chunk.section_ref)
+            section_part_index = _section_part_index(chunk.section_ref)
+            section_total_parts = section_part_totals.get(base_section_ref or "", 1)
             payloads.append({
                 "tenant_id": item.tenant_id,
                 "source_table": source_table,
@@ -522,17 +548,23 @@ class LegalDocumentIngestionService:
                     "article": chunk_article,
                     "article_source": chunk_article_source,
                     "document_article": document_article,
+                    "section_ref_base": base_section_ref,
+                    "section_part_index": section_part_index,
+                    "section_total_parts": section_total_parts,
+                    "content_char_count": len(chunk.content),
+                    "content_sha256": hashlib.sha256(chunk.content.encode("utf-8")).hexdigest(),
                     "language": language,
                     "extraction_method": extraction.method,
                     "document_text_quality": extraction.quality.to_metadata(),
                     "chunk_text_quality": chunk_quality.to_metadata(),
                     "ingestion_version": INGESTION_PIPELINE_VERSION,
-                    "chunking_strategy": "lao_legal_section_paragraph_v2",
+                    "chunking_strategy": "lao_legal_section_paragraph_v3",
                 },
                 "embedding": _vector_literal(embedding) if embedding else None,
             })
 
         inserted = 0
+        await self._delete_existing_chunks(source_table=source_table, document_id=document_id)
         try:
             for start in range(0, len(payloads), 100):
                 batch = payloads[start:start + 100]
@@ -543,14 +575,20 @@ class LegalDocumentIngestionService:
             legacy_payloads = [_legacy_chunk_payload(payload) for payload in payloads]
             if legacy_payloads != payloads:
                 try:
+                    await self._delete_existing_chunks(source_table=source_table, document_id=document_id)
                     for start in range(0, len(legacy_payloads), 100):
                         batch = legacy_payloads[start:start + 100]
                         result = await self._supabase.table("document_chunks").insert(batch).execute()
                         inserted += len(result.data or batch)
-                    return inserted, [
+                    warnings = [
                         "document_chunks table accepted a legacy schema; "
                         "apply supabase_lao_law_categories.sql for category-level RAG."
                     ]
+                    if inserted != len(payloads):
+                        warnings.append(
+                            f"Only {inserted} of {len(payloads)} chunks were inserted; review document_chunks."
+                        )
+                    return inserted, warnings
                 except Exception as retry_exc:
                     log.warning("ingestion.chunk_insert_legacy.failed", error=str(retry_exc))
             return inserted, [
@@ -558,7 +596,23 @@ class LegalDocumentIngestionService:
                 "and supabase_lao_law_categories.sql to enable chunk-level RAG."
             ]
 
+        if inserted != len(payloads):
+            return inserted, [
+                f"Only {inserted} of {len(payloads)} chunks were inserted; review document_chunks."
+            ]
         return inserted, []
+
+    async def _delete_existing_chunks(self, *, source_table: str, document_id: str) -> None:
+        try:
+            await (
+                self._supabase.table("document_chunks")
+                .delete()
+                .eq("source_table", source_table)
+                .eq("source_id", document_id)
+                .execute()
+            )
+        except Exception as exc:
+            log.warning("ingestion.chunk_delete_existing.failed", source_table=source_table, error=str(exc))
 
 
 def extract_text(content: bytes, content_type: str, filename: str) -> str:
@@ -621,21 +675,34 @@ def extract_text_with_metadata(
 
 
 ARTICLE_LABEL_PATTERN = (
-    r"(?:มาตรา|ມາດຕາ|Article|Art\.?|Section|Sec\.?)"
+    r"(?:\u0e21\u0e32\u0e15\u0e23\u0e32|\u0ea1\u0eb2\u0e94\u0e95\u0eb2|Article|Art\.?|Section|Sec\.?)"
 )
+LEGAL_REF_TOKEN_PATTERN = (
+    r"[0-9\u0e50-\u0e59\u0ed0-\u0ed9]{1,4}"
+    r"[A-Za-z0-9\u0e01-\u0e59\u0e81-\u0eae\u0ed0-\u0ed9./-]*"
+)
+LEGAL_DIGIT_PATTERN = r"[0-9\u0e50-\u0e59\u0ed0-\u0ed9]"
 
 SECTION_HEADING_RE = re.compile(
-    r"(?im)^(?P<section>"
-    r"(?:มาตรา|ข้อ|หมวด|บทที่|ມາດຕາ|ຂໍ້|ຫມວດ|ໝວດ|ພາກ|ບົດທີ|Article|Art\.|Section|Sec\.|Chapter|Part)"
-    r"\s+[0-9A-Za-zก-๙ກ-ຮ./-]+"
-    r")"
+    rf"(?im)^(?P<section>"
+    rf"(?:\u0e21\u0e32\u0e15\u0e23\u0e32|\u0e02\u0e49\u0e2d|\u0e2b\u0e21\u0e27\u0e14|"
+    rf"\u0e1a\u0e17\u0e17\u0e35\u0e48|\u0ea1\u0eb2\u0e94\u0e95\u0eb2|\u0e82\u0ecd\u0ec9|"
+    rf"\u0eab\u0ea1\u0ea7\u0e94|\u0edd\u0ea7\u0e94|\u0e9e\u0eb2\u0e81|\u0e9a\u0ebb\u0e94\u0e97\u0eb5|"
+    rf"Article|Art\.|Section|Sec\.|Chapter|Part)"
+    rf"[ \t]*{LEGAL_REF_TOKEN_PATTERN}"
+    rf")"
 )
 SPLIT_ARTICLE_NUMBER_RE = re.compile(
-    rf"(?im)^(\s*{ARTICLE_LABEL_PATTERN}[ \t]+)([1-9])[ \t]+([0-9]{{2,3}})(?=[ \t]+[^\d\s]|[ \t]*$)"
+    rf"(?im)^(\s*{ARTICLE_LABEL_PATTERN}[ \t]*)({LEGAL_DIGIT_PATTERN})[ \t]+"
+    rf"({LEGAL_DIGIT_PATTERN}{{2,3}})(?=[ \t]+[^\d\s]|[ \t]*$)"
 )
 ARTICLE_REF_RE = re.compile(
-    rf"(?i){ARTICLE_LABEL_PATTERN}\s*([0-9A-Za-zก-๙ກ-ຮ./-]+)"
+    rf"(?i){ARTICLE_LABEL_PATTERN}[ \t]*({LEGAL_REF_TOKEN_PATTERN})"
 )
+LEGAL_DIGIT_TRANSLATION = str.maketrans({
+    **{chr(0x0E50 + digit): str(digit) for digit in range(10)},
+    **{chr(0x0ED0 + digit): str(digit) for digit in range(10)},
+})
 
 
 THAI_BLOCK_RE = re.compile(r"[\u0e00-\u0e7f]")
@@ -694,12 +761,16 @@ def _repair_split_article_heading_numbers(text: str) -> str:
     """Repair OCR headings like 'ມາດຕາ 1 14' so section parsing sees article 114."""
 
     def replace(match: re.Match[str]) -> str:
-        number = f"{match.group(2)}{match.group(3)}"
+        number = _normalise_legal_digits(f"{match.group(2)}{match.group(3)}")
         if int(number) > 999:
             return match.group(0)
         return f"{match.group(1)}{number}"
 
     return SPLIT_ARTICLE_NUMBER_RE.sub(replace, text or "")
+
+
+def _normalise_legal_digits(value: str | None) -> str:
+    return (value or "").translate(LEGAL_DIGIT_TRANSLATION)
 
 
 def _decode_text_bytes(content: bytes) -> tuple[str, list[str]]:
@@ -857,7 +928,14 @@ def assess_lao_legal_text_quality(text: str) -> TextQualityReport:
         warnings.append("Text contains mojibake/replacement characters; source PDF text layer may be corrupt.")
     if repeated_symbol_runs >= 4:
         warnings.append("Text contains many repeated symbol runs; PDF table-of-contents or scan artifacts may remain.")
-    if looks_lao and suspicious_latin_tokens >= 10:
+    severe_latin_ocr_noise = (
+        looks_lao
+        and (
+            suspicious_latin_tokens >= 60
+            or (suspicious_latin_tokens >= 20 and (latin_ratio >= 0.08 or score < PREFERRED_PDF_TEXT_QUALITY))
+        )
+    )
+    if severe_latin_ocr_noise:
         warnings.append("Lao text contains many unexpected Latin OCR tokens.")
     if looks_lao and thai_ratio >= 0.02 and char_count >= 80:
         warnings.append(
@@ -938,32 +1016,33 @@ def chunk_text(text: str, *, max_chars: int = 3200, overlap: int = 300) -> list[
 
 
 def assess_legal_structure(chunks: list[LegalTextChunk]) -> LegalStructureReport:
-    articles: list[int] = []
-    section_refs: list[str] = []
+    entries: list[tuple[int, str]] = []
 
     for chunk in chunks:
         section_ref = chunk.section_ref or ""
         if not section_ref or section_ref == "Preamble":
             continue
+        if _is_continued_section_ref(section_ref):
+            continue
         article = _article_number_as_int(_article_from_section(section_ref))
         if article is None:
             continue
-        articles.append(article)
-        section_refs.append(section_ref)
+        entries.append((article, section_ref))
 
+    sequences, hard_out_of_order = _article_heading_sequences(entries)
+    main_sequence = _main_article_sequence(sequences)
+    articles = [article for article, _section_ref in main_sequence]
+    section_refs = [section_ref for _article, section_ref in main_sequence]
     unique_articles = _ordered_unique_ints(articles)
     max_article = max(unique_articles) if unique_articles else None
     missing: list[str] = []
-    if max_article and max_article <= 1000:
+    min_article = min(unique_articles) if unique_articles else None
+    if max_article and min_article and max_article <= 1000:
         article_set = set(unique_articles)
-        missing = [str(number) for number in range(1, max_article + 1) if number not in article_set]
+        missing = [str(number) for number in range(min_article, max_article + 1) if number not in article_set]
 
     duplicate_sections = _duplicate_values(section_refs)
-    out_of_order = sum(
-        1
-        for previous, current in zip(articles, articles[1:], strict=False)
-        if current < previous
-    )
+    out_of_order = hard_out_of_order
 
     warnings: list[str] = []
     if missing:
@@ -990,6 +1069,110 @@ def assess_legal_structure(chunks: list[LegalTextChunk]) -> LegalStructureReport
     )
 
 
+def _article_heading_sequences(
+    entries: list[tuple[int, str]],
+) -> tuple[list[list[tuple[int, str]]], int]:
+    if not entries:
+        return [], 0
+
+    sequences: list[list[tuple[int, str]]] = [[entries[0]]]
+    hard_out_of_order = 0
+    previous = entries[0][0]
+    for article, section_ref in entries[1:]:
+        if article < previous:
+            if article == 1:
+                sequences.append([(article, section_ref)])
+            else:
+                hard_out_of_order += 1
+                sequences[-1].append((article, section_ref))
+        else:
+            sequences[-1].append((article, section_ref))
+        previous = article
+    return sequences, hard_out_of_order
+
+
+def _main_article_sequence(sequences: list[list[tuple[int, str]]]) -> list[tuple[int, str]]:
+    if not sequences:
+        return []
+    return max(
+        sequences,
+        key=lambda sequence: (
+            len(_ordered_unique_ints(article for article, _section_ref in sequence)),
+            max((article for article, _section_ref in sequence), default=0),
+            len(sequence),
+        ),
+    )
+
+
+def assess_chunk_coverage(source_text: str, chunks: list[LegalTextChunk]) -> ChunkCoverageReport:
+    source = _compact_for_coverage(_normalise_chunk_source_text(source_text))
+    chunk_text = _compact_for_coverage("\n\n".join(chunk.content for chunk in chunks))
+    if not source or not chunks:
+        warning = ("No chunks were produced from the extracted legal text.",) if source else ()
+        return ChunkCoverageReport(
+            source_length=len(source),
+            chunk_count=len(chunks),
+            sampled_windows=0,
+            missing_windows=0,
+            coverage_ratio=1.0 if not source else 0.0,
+            warnings=warning,
+        )
+
+    window_size = min(80, max(40, len(source) // 160))
+    if len(source) <= window_size:
+        missing = 0 if source in chunk_text else 1
+        coverage = 1.0 if missing == 0 else 0.0
+        warnings = _chunk_coverage_warnings(coverage, missing_windows=missing)
+        return ChunkCoverageReport(
+            source_length=len(source),
+            chunk_count=len(chunks),
+            sampled_windows=1,
+            missing_windows=missing,
+            coverage_ratio=coverage,
+            warnings=warnings,
+        )
+
+    max_samples = 350
+    stride = max(window_size, (len(source) - window_size) // max_samples)
+    starts = list(range(0, len(source) - window_size + 1, stride))
+    last_start = len(source) - window_size
+    if starts[-1] != last_start:
+        starts.append(last_start)
+
+    missing = 0
+    sampled = 0
+    for start in starts:
+        sample = source[start:start + window_size]
+        if len(sample.strip()) < max(30, window_size // 2):
+            continue
+        sampled += 1
+        if sample not in chunk_text:
+            missing += 1
+
+    coverage = 1.0 if sampled == 0 else max(0.0, 1.0 - (missing / sampled))
+    warnings = _chunk_coverage_warnings(coverage, missing_windows=missing)
+    return ChunkCoverageReport(
+        source_length=len(source),
+        chunk_count=len(chunks),
+        sampled_windows=sampled,
+        missing_windows=missing,
+        coverage_ratio=coverage,
+        warnings=warnings,
+    )
+
+
+def _compact_for_coverage(text: str) -> str:
+    return re.sub(r"\s+", " ", text or "").strip()
+
+
+def _chunk_coverage_warnings(coverage_ratio: float, *, missing_windows: int) -> tuple[str, ...]:
+    if missing_windows == 0 or coverage_ratio >= 0.95:
+        return ()
+    return (
+        "Chunk coverage is lower than expected; some extracted legal text may be missing from document_chunks.",
+    )
+
+
 def chunk_legal_text(text: str, *, max_chars: int = 2600, overlap: int = 350) -> list[LegalTextChunk]:
     text = _normalise_chunk_source_text(text)
     if not text:
@@ -1006,6 +1189,7 @@ def chunk_legal_text(text: str, *, max_chars: int = 2600, overlap: int = 350) ->
             section = section_ref
             if section_ref and part_index:
                 section = f"{section_ref} (continued {part_index + 1})"
+                part = _prefix_continuation_section_heading(part, section_ref)
             chunks.append(LegalTextChunk(
                 index=chunk_index,
                 content=part,
@@ -1054,6 +1238,10 @@ def _is_legal_heading_line(line: str) -> bool:
 def _split_legal_sections(text: str) -> list[tuple[str | None, str]]:
     text = _trim_chunk_text(text)
     matches = list(SECTION_HEADING_RE.finditer(text))
+    if len(matches) < 2:
+        inline_matches = _inline_article_heading_matches(text)
+        if len(inline_matches) > len(matches):
+            matches = inline_matches
     if not matches:
         return [(None, text)] if text else []
 
@@ -1067,12 +1255,178 @@ def _split_legal_sections(text: str) -> list[tuple[str | None, str]]:
     for index, match in enumerate(matches):
         start = match.start()
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        section_ref = re.sub(r"\s+", " ", match.group("section")).strip()
+        section_ref = re.sub(r"\s+", " ", _section_ref_from_match(match)).strip()
         section_text = _trim_chunk_text(text[start:end])
         if section_text:
             sections.append((section_ref, section_text))
 
     return sections or ([(None, text)] if text else [])
+
+
+def _section_ref_from_match(match: re.Match[str]) -> str:
+    section = match.groupdict().get("section")
+    return section or match.group(0)
+
+
+def _inline_article_heading_matches(text: str) -> list[re.Match[str]]:
+    candidates = [
+        match for match in ARTICLE_REF_RE.finditer(text)
+        if _is_structural_inline_article_heading(text, match)
+    ]
+    if not _looks_like_article_heading_sequence(candidates):
+        return []
+    return candidates
+
+
+def _is_structural_inline_article_heading(text: str, match: re.Match[str]) -> bool:
+    start = match.start()
+    if start == 0 or text[start - 1] == "\n":
+        return True
+
+    left = text[max(0, start - 48):start]
+    if _has_article_reference_prefix(left):
+        return False
+
+    stripped_left = left.rstrip()
+    if re.search(r"[\n.!?:;\u0eaf]\s*$", stripped_left):
+        return True
+
+    line_start = text.rfind("\n", 0, start) + 1
+    return (start - line_start) >= 140
+
+
+def _has_article_reference_prefix(left_context: str) -> bool:
+    tail = re.sub(r"\s+", " ", left_context or "").strip().casefold()
+    reference_prefixes = (
+        "\u0e95\u0eb2\u0ea1",  # Lao: pursuant to / according to
+        "\u0ec3\u0e99",        # Lao: in
+        "\u0e82\u0ead\u0e87",  # Lao: of
+        "\u0e95\u0eb2\u0ea1\u0e97\u0eb5\u0ec8",
+        "\u0e15\u0e32\u0e21",  # Thai: according to
+        "\u0e43\u0e19",        # Thai: in
+        "under",
+        "pursuant to",
+        "according to",
+        "see",
+    )
+    return any(tail.endswith(prefix) for prefix in reference_prefixes)
+
+
+def _looks_like_article_heading_sequence(matches: list[re.Match[str]]) -> bool:
+    if len(matches) < 2:
+        return False
+
+    numbers = [
+        _article_number_as_int(match.group(1))
+        for match in matches
+    ]
+    numbers = [number for number in numbers if number is not None]
+    if len(numbers) < 2:
+        return False
+    if any(current < previous for previous, current in zip(numbers, numbers[1:], strict=False)):
+        return False
+    if numbers[0] > 10 and len(numbers) < 4:
+        return False
+
+    near_steps = sum(
+        1
+        for previous, current in zip(numbers, numbers[1:], strict=False)
+        if 0 < current - previous <= 5
+    )
+    return near_steps >= max(1, len(numbers) // 2)
+
+
+def _prefix_continuation_section_heading(part: str, section_ref: str) -> str:
+    clean = _trim_chunk_text(part)
+    if not clean or SECTION_HEADING_RE.match(clean):
+        return clean
+    return _trim_chunk_text(f"{section_ref}\n\n{clean}")
+
+
+def _is_continued_section_ref(section_ref: str | None) -> bool:
+    return bool(section_ref and re.search(r"\s+\(continued\s+\d+\)$", section_ref, flags=re.IGNORECASE))
+
+
+def _base_section_ref(section_ref: str | None) -> str | None:
+    if not section_ref:
+        return None
+    return re.sub(r"\s+\(continued\s+\d+\)$", "", section_ref, flags=re.IGNORECASE).strip()
+
+
+def _section_part_index(section_ref: str | None) -> int:
+    if not section_ref:
+        return 1
+    match = re.search(r"\s+\(continued\s+(\d+)\)$", section_ref, flags=re.IGNORECASE)
+    if not match:
+        return 1
+    return max(1, int(match.group(1)))
+
+
+def _section_part_totals(chunks: list[LegalTextChunk]) -> dict[str, int]:
+    totals: dict[str, int] = {}
+    for chunk in chunks:
+        base = _base_section_ref(chunk.section_ref) or ""
+        if not base:
+            continue
+        totals[base] = max(totals.get(base, 0), _section_part_index(chunk.section_ref))
+    return totals
+
+
+def merge_overlapping_chunk_contents(
+    parts: list[str],
+    *,
+    section_ref_base: str | None = None,
+) -> str:
+    """Rebuild a long legal section from stored continuation chunks for audit views."""
+    cleaned_parts: list[str] = []
+    for index, part in enumerate(parts):
+        clean = _trim_chunk_text(part)
+        if not clean:
+            continue
+        if index:
+            clean = _strip_repeated_section_heading(clean, section_ref_base)
+        if clean:
+            cleaned_parts.append(clean)
+
+    if not cleaned_parts:
+        return ""
+
+    merged = cleaned_parts[0]
+    for part in cleaned_parts[1:]:
+        overlap = _longest_text_overlap(merged, part)
+        if overlap:
+            merged = _trim_chunk_text(f"{merged}{part[overlap:]}")
+        else:
+            merged = _trim_chunk_text(f"{merged}\n\n{part}")
+    return merged
+
+
+def _strip_repeated_section_heading(text: str, section_ref_base: str | None) -> str:
+    clean = _trim_chunk_text(text)
+    if not clean or not section_ref_base:
+        return clean
+
+    heading = _trim_chunk_text(section_ref_base)
+    if not heading:
+        return clean
+
+    if clean.casefold().startswith(heading.casefold()):
+        remainder = clean[len(heading):]
+        remainder = re.sub(r"^\s*(?:[-:.\u0eaf])?\s*", "", remainder)
+        return _trim_chunk_text(remainder)
+    return clean
+
+
+def _longest_text_overlap(left: str, right: str, *, min_overlap: int = 40, max_overlap: int = 900) -> int:
+    if not left or not right:
+        return 0
+    maximum = min(len(left), len(right), max_overlap)
+    if maximum < min_overlap:
+        return 0
+    for size in range(maximum, min_overlap - 1, -1):
+        if left[-size:] == right[:size]:
+            return size
+    return 0
 
 
 def _split_with_overlap(text: str, *, max_chars: int, overlap: int) -> list[str]:
@@ -1169,7 +1523,7 @@ def _find_chunk_boundary(text: str, *, start: int, end: int, max_chars: int) -> 
     if boundary >= minimum:
         return _advance_past_combining_marks(text, boundary)
 
-    for separator in (". ", "। ", "。 ", "! ", "? ", "; ", " "):
+    for separator in ("\n", ". ", "\u0eaf ", "\u0964 ", "\u3002 ", "! ", "? ", "; ", " "):
         boundary = text.rfind(separator, start, end)
         if boundary >= minimum:
             return _advance_past_combining_marks(text, boundary + len(separator))
@@ -1410,6 +1764,8 @@ def _extract_pdf_with_ocr(
         with fitz.open(stream=content, filetype="pdf") as doc:
             max_pages = int(settings.pdf_ocr_max_pages)
             page_count = len(doc) if max_pages <= 0 else min(len(doc), max(1, max_pages))
+            max_consecutive_failures = max(1, int(settings.pdf_ocr_max_consecutive_failed_pages))
+            consecutive_failures = 0
             scale = max(72, settings.pdf_ocr_dpi) / 72
             matrix = fitz.Matrix(scale, scale)
 
@@ -1418,6 +1774,7 @@ def _extract_pdf_with_ocr(
                 pixmap = page.get_pixmap(matrix=matrix, alpha=False)
                 image = Image.open(io.BytesIO(pixmap.tobytes("png")))
                 image = _prepare_ocr_image(image)
+                ocr_error_count = len(errors)
                 text = _ocr_image_text(
                     image,
                     pytesseract,
@@ -1427,6 +1784,17 @@ def _extract_pdf_with_ocr(
                 )
                 if text.strip():
                     text_parts.append(text.strip())
+                    consecutive_failures = 0
+                elif len(errors) > ocr_error_count:
+                    consecutive_failures += 1
+                    if consecutive_failures >= max_consecutive_failures:
+                        errors.append(
+                            "OCR stopped after "
+                            f"{consecutive_failures} consecutive page failures. "
+                            "Check scan quality, Tesseract language data, or raise "
+                            "PDF_OCR_MAX_CONSECUTIVE_FAILED_PAGES."
+                        )
+                        break
 
             if len(doc) > page_count:
                 errors.append(
@@ -1491,15 +1859,6 @@ def _resolve_tesseract_languages(
         jurisdiction=jurisdiction,
         language_hint=language_hint,
     )
-    skipped = [language for language in requested if language not in selected]
-    if skipped and ("tha" in skipped or "lao" in skipped):
-        errors.append(
-            "OCR language list was narrowed to "
-            + "+".join(selected)
-            + " for jurisdiction/language context; skipped: "
-            + ", ".join(skipped)
-            + "."
-        )
 
     try:
         available = set(pytesseract.get_languages(config=""))
@@ -1620,7 +1979,14 @@ def _ocr_image_text(
     errors: list[str],
 ) -> str:
     try:
-        return pytesseract.image_to_string(image, lang=language)
+        timeout = max(1, int(get_settings().pdf_ocr_page_timeout_seconds))
+        return pytesseract.image_to_string(image, lang=language, timeout=timeout)
+    except TypeError:
+        try:
+            return pytesseract.image_to_string(image, lang=language)
+        except Exception as exc:
+            errors.append(f"Tesseract OCR failed on page {page_number} with languages '{language}': {exc}")
+            return ""
     except Exception as exc:
         errors.append(f"Tesseract OCR failed on page {page_number} with languages '{language}': {exc}")
         return ""
@@ -1673,7 +2039,7 @@ def _article_from_section(section_ref: str | None) -> str | None:
     match = ARTICLE_REF_RE.search(repaired)
     if not match:
         return None
-    return match.group(1).strip().rstrip(".,;:)")
+    return _normalise_legal_digits(match.group(1).strip().rstrip(".,;:)"))
 
 
 def _chunk_article_metadata(
@@ -1722,7 +2088,8 @@ def _document_article_metadata(
 def _article_number_as_int(article: str | None) -> int | None:
     if not article:
         return None
-    match = re.match(r"0*([0-9]{1,4})(?:\D|$)", article.strip())
+    normalised = _normalise_legal_digits(article)
+    match = re.match(r"0*([0-9]{1,4})(?:\D|$)", normalised.strip())
     if not match:
         return None
     return int(match.group(1))

@@ -1,0 +1,45 @@
+[
+  {
+    "id": "lao_land_law_70_na_2019_lo",
+    "title": "ກົດໝາຍວ່າດ້ວຍທີ່ດິນ (ສະບັບປັບປຸງ), ເລກທີ 70/ສພຊ, 21 ມິຖຸນາ 2019",
+    "url": "https://www.laotradeportal.gov.la/upload/files/Legal_1666079628lo_LA.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "law_no": "70/NA",
+    "year": 2019,
+    "language": "lo",
+    "tags": ["land", "property", "official", "priority"],
+    "review_status": "approved",
+    "notes": "Primary Lao land law — required for land-rights benchmark coverage."
+  },
+  {
+    "id": "lao_land_law_70_na_2019_lo_alt",
+    "title": "ກົດໝາຍວ່າດ້ວຍທີ່ດິນ (ສະບັບປັບປຸງ 2019) — LIWG Lao version",
+    "url": "https://laolandinfo.org/wp-content/uploads/2020/08/Land-Law-revision-2019_Lao-version.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "law_no": "70/NA",
+    "year": 2019,
+    "language": "lo",
+    "tags": ["land", "property", "liwg"],
+    "review_status": "approved",
+    "enabled": false,
+    "notes": "Alternate Lao PDF; enable only if trade-portal copy is incomplete."
+  },
+  {
+    "id": "lao_land_law_70_na_2019_en",
+    "title": "Law on Land (Amended) No. 70/NA — Unofficial English Translation",
+    "url": "https://laolandinfo.org/wp-content/uploads/2021/05/Land-Law-2019_Eng-Unofficial-Translation.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "law_no": "70/NA",
+    "year": 2019,
+    "language": "en",
+    "tags": ["land", "property", "english", "unofficial_translation"],
+    "review_status": "approved",
+    "notes": "English reference only — Lao official text takes precedence at answer time."
+  }
+]

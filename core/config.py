@@ -103,7 +103,7 @@ class Settings(BaseSettings):
     # LLM budget controls. Defaults are tuned for a small prepaid balance.
     llm_economy_mode: bool = True
     llm_fallback_to_economy_model: bool = True
-    llm_verify_citations_with_llm: bool = False
+    llm_verify_citations_with_llm: bool = True
     llm_max_tokens_reasoning: int = 1600
     llm_max_tokens_document: int = 1400
     llm_max_tokens_evidence: int = 1000
@@ -129,8 +129,8 @@ class Settings(BaseSettings):
     rag_chunk_overlap_chars: int = 350
     rag_embedding_batch_size: int = 48
     rag_plan_max_queries: int = 3
-    reasoning_context_top_k: int = 6
-    reasoning_context_chunk_chars: int = 1200
+    reasoning_context_top_k: int = 10
+    reasoning_context_chunk_chars: int = 2000
     case_analysis_min_fact_chars: int = 120
 
     # ── Storage ────────────────────────────────────────────────────────────────
@@ -144,6 +144,8 @@ class Settings(BaseSettings):
     pdf_detect_garbled_text: bool = True
     pdf_ocr_max_pages: int = 0
     pdf_ocr_dpi: int = 300
+    pdf_ocr_page_timeout_seconds: int = 45
+    pdf_ocr_max_consecutive_failed_pages: int = 8
     pdf_ocr_languages: str = "lao+eng"
     tesseract_cmd: str | None = None
     tessdata_prefix: str | None = None

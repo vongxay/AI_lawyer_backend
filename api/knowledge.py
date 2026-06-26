@@ -6,6 +6,8 @@ Knowledge-base management endpoints for the admin UI.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
+import re
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
@@ -19,6 +21,7 @@ from services.ingestion_service import (
     LegalDocumentIngestionService,
     _article_from_section,
     _article_number_as_int,
+    merge_overlapping_chunk_contents,
 )
 
 router = APIRouter(prefix="/api/v1/knowledge", tags=["knowledge"])
@@ -63,6 +66,8 @@ CHUNK_AUDIT_LEGACY_COLUMNS = (
     "section_ref, token_count, status, review_status, metadata, created_at, updated_at"
 )
 CHUNK_PREVIEW_COLUMNS = "id, chunk_index, content"
+CHUNK_CONTENT_COLUMNS = f"{CHUNK_AUDIT_COLUMNS}, content"
+CHUNK_CONTENT_LEGACY_COLUMNS = f"{CHUNK_AUDIT_LEGACY_COLUMNS}, content"
 
 
 @router.get("/documents", summary="List legal knowledge documents")
@@ -166,6 +171,54 @@ async def get_document_chunks_audit(
         "documentStructure": document_structure,
         "qa": qa,
         "items": items[:limit],
+    }
+
+
+@router.get("/documents/{document_id}/article-sections", summary="Inspect reconstructed article sections")
+async def get_document_article_sections(
+    document_id: str,
+    user: AdminUser,
+    source_table: str = Query(default="laws", pattern="^(laws|cases|legal_forms)$"),
+    limit: int = Query(default=200, ge=1, le=1000),
+    audit_limit: int = Query(default=10000, ge=1, le=20000),
+    include_content: bool = Query(default=False),
+    max_content_chars: int = Query(default=6000, ge=500, le=200000),
+    section_ref: str | None = Query(default=None, max_length=200),
+) -> dict:
+    supabase = await get_supabase()
+    if not supabase:
+        return {
+            "documentId": document_id,
+            "sourceTable": source_table,
+            "totalSections": 0,
+            "returned": 0,
+            "auditLimit": 0,
+            "isTruncated": False,
+            "items": [],
+        }
+
+    rows = await _fetch_document_chunk_content_rows(
+        supabase,
+        source_table=source_table,
+        document_id=document_id,
+        audit_limit=audit_limit,
+    )
+    items = _map_article_section_groups(
+        rows,
+        include_content=include_content,
+        max_content_chars=max_content_chars,
+        section_ref_filter=section_ref,
+    )
+    returned = items[:limit]
+
+    return {
+        "documentId": document_id,
+        "sourceTable": source_table,
+        "totalSections": len(items),
+        "returned": len(returned),
+        "auditLimit": audit_limit,
+        "isTruncated": len(rows) >= audit_limit,
+        "items": returned,
     }
 
 
@@ -318,6 +371,35 @@ async def _fetch_document_chunk_rows(
     return []
 
 
+async def _fetch_document_chunk_content_rows(
+    supabase: Any,
+    *,
+    source_table: str,
+    document_id: str,
+    audit_limit: int,
+) -> list[dict[str, Any]]:
+    for columns in (CHUNK_CONTENT_COLUMNS, CHUNK_CONTENT_LEGACY_COLUMNS):
+        try:
+            result = await (
+                supabase.table("document_chunks")
+                .select(columns)
+                .eq("source_table", source_table)
+                .eq("source_id", document_id)
+                .order("chunk_index")
+                .limit(audit_limit)
+                .execute()
+            )
+            return result.data or []
+        except Exception as exc:
+            log.warning(
+                "knowledge.article_sections.select_failed",
+                source_table=source_table,
+                legacy=columns == CHUNK_CONTENT_LEGACY_COLUMNS,
+                error=str(exc),
+            )
+    return []
+
+
 async def _fetch_document_chunk_previews(
     supabase: Any,
     *,
@@ -401,6 +483,157 @@ def _map_chunk_audit_item(
     }
 
 
+def _map_article_section_groups(
+    rows: list[dict[str, Any]],
+    *,
+    include_content: bool,
+    max_content_chars: int,
+    section_ref_filter: str | None = None,
+) -> list[dict[str, Any]]:
+    groups: dict[str, dict[str, Any]] = {}
+    occurrence_by_base: dict[str, int] = {}
+    active_group_by_base: dict[str, str] = {}
+    last_base: str | None = None
+    filter_base = _normalise_section_ref_filter(section_ref_filter)
+
+    for row in rows:
+        metadata = _safe_dict(row.get("metadata"))
+        section_ref = _str_or_none(row.get("section_ref")) or "Preamble"
+        base = _str_or_none(metadata.get("section_ref_base")) or _base_section_ref(section_ref) or section_ref
+        part_index = _section_part_index(row)
+        is_continuation = part_index > 1 or _is_continued_section_ref(section_ref)
+
+        if filter_base and _normalise_section_ref_filter(base) != filter_base:
+            last_base = base
+            continue
+
+        if is_continuation and base in active_group_by_base:
+            group_key = active_group_by_base[base]
+        else:
+            starts_new_occurrence = not is_continuation and base != last_base
+            if starts_new_occurrence or base not in active_group_by_base:
+                occurrence_by_base[base] = occurrence_by_base.get(base, 0) + 1
+                group_key = f"{base}#{occurrence_by_base[base]}"
+                active_group_by_base[base] = group_key
+            else:
+                group_key = active_group_by_base[base]
+
+        group = groups.setdefault(
+            group_key,
+            {
+                "key": group_key,
+                "sectionRefBase": base,
+                "occurrence": occurrence_by_base.get(base, 1),
+                "article": _str_or_none(row.get("article") or metadata.get("article") or _article_from_section(base)),
+                "rows": [],
+            },
+        )
+        if not group.get("article"):
+            group["article"] = _str_or_none(row.get("article") or metadata.get("article") or _article_from_section(base))
+        group["rows"].append(row)
+        last_base = base
+
+    return [
+        _build_article_section_item(
+            group,
+            include_content=include_content,
+            max_content_chars=max_content_chars,
+        )
+        for group in groups.values()
+    ]
+
+
+def _build_article_section_item(
+    group: dict[str, Any],
+    *,
+    include_content: bool,
+    max_content_chars: int,
+) -> dict[str, Any]:
+    rows = sorted(
+        group.get("rows") or [],
+        key=lambda row: (_section_part_index(row), int(row.get("chunk_index") or 0)),
+    )
+    parts = [str(row.get("content") or "") for row in rows]
+    content = merge_overlapping_chunk_contents(parts, section_ref_base=group.get("sectionRefBase"))
+    expected_parts = _expected_section_parts(rows)
+    observed_part_indexes = [_section_part_index(row) for row in rows]
+    missing_parts = _missing_section_parts(observed_part_indexes, expected_parts)
+    warnings: list[str] = []
+    if missing_parts:
+        warnings.append(f"Missing section part indexes: {', '.join(map(str, missing_parts))}")
+    if expected_parts is not None and len(rows) < expected_parts:
+        warnings.append(f"Expected {expected_parts} chunks for this section, found {len(rows)}.")
+
+    payload = {
+        "key": group.get("key"),
+        "sectionRefBase": group.get("sectionRefBase"),
+        "occurrence": group.get("occurrence"),
+        "article": group.get("article"),
+        "chunkCount": len(rows),
+        "chunkIndexes": [row.get("chunk_index") for row in rows],
+        "sectionPartIndexes": observed_part_indexes,
+        "expectedParts": expected_parts,
+        "isComplete": not warnings,
+        "contentLength": len(content),
+        "contentSha256": hashlib.sha256(content.encode("utf-8")).hexdigest() if content else None,
+        "contentPreview": _content_preview(content, max_length=1200),
+        "contentTruncated": include_content and len(content) > max_content_chars,
+        "warnings": warnings,
+    }
+    if include_content:
+        payload["content"] = content[:max_content_chars]
+    return payload
+
+
+def _normalise_section_ref_filter(value: str | None) -> str | None:
+    text = _str_or_none(value)
+    if not text:
+        return None
+    return re.sub(r"\s+", " ", text).strip().casefold()
+
+
+def _base_section_ref(section_ref: str | None) -> str | None:
+    if not section_ref:
+        return None
+    return re.sub(r"\s+\(continued\s+\d+\)$", "", section_ref, flags=re.IGNORECASE).strip()
+
+
+def _section_part_index(row_or_section_ref: dict[str, Any] | str | None) -> int:
+    if isinstance(row_or_section_ref, dict):
+        metadata = _safe_dict(row_or_section_ref.get("metadata"))
+        value = metadata.get("section_part_index")
+        if isinstance(value, int):
+            return max(1, value)
+        if isinstance(value, str) and value.isdigit():
+            return max(1, int(value))
+        section_ref = _str_or_none(row_or_section_ref.get("section_ref"))
+    else:
+        section_ref = _str_or_none(row_or_section_ref)
+    if not section_ref:
+        return 1
+    match = re.search(r"\s+\(continued\s+(\d+)\)$", section_ref, flags=re.IGNORECASE)
+    return max(1, int(match.group(1))) if match else 1
+
+
+def _expected_section_parts(rows: list[dict[str, Any]]) -> int | None:
+    totals: list[int] = []
+    for row in rows:
+        metadata = _safe_dict(row.get("metadata"))
+        value = metadata.get("section_total_parts")
+        if isinstance(value, int):
+            totals.append(value)
+        elif isinstance(value, str) and value.isdigit():
+            totals.append(int(value))
+    return max(totals) if totals else None
+
+
+def _missing_section_parts(observed: list[int], expected_parts: int | None) -> list[int]:
+    if not expected_parts:
+        return []
+    present = set(observed)
+    return [index for index in range(1, expected_parts + 1) if index not in present]
+
+
 def _assess_chunk_audit(
     items: list[dict[str, Any]],
     *,
@@ -412,20 +645,20 @@ def _assess_chunk_audit(
     article_numbers: list[int] = []
     section_refs: list[str] = []
     out_of_order = 0
-    previous_article: int | None = None
+    entries: list[tuple[int, str]] = []
 
     for item in items:
         section_ref = str(item.get("sectionRef") or "").strip()
-        if section_ref and section_ref != "Preamble":
-            section_refs.append(section_ref)
-
         article = _article_number_as_int(item.get("detectedArticle") or item.get("article"))
         if article is None:
             continue
-        article_numbers.append(article)
-        if previous_article is not None and article < previous_article:
-            out_of_order += 1
-        previous_article = article
+        if section_ref and section_ref != "Preamble" and not _is_continued_section_ref(section_ref):
+            entries.append((article, section_ref))
+
+    sequences, out_of_order = _article_heading_sequences(entries)
+    main_sequence = _main_article_sequence(sequences)
+    article_numbers = [article for article, _section_ref in main_sequence]
+    section_refs = [section_ref for _article, section_ref in main_sequence]
 
     unique_articles = _ordered_unique_ints(article_numbers)
     max_article = max(unique_articles) if unique_articles else None
@@ -584,6 +817,44 @@ def _article_match_status(stored_article: str | None, detected_article: str | No
     return stored_article.strip().casefold() == detected_article.strip().casefold()
 
 
+def _article_heading_sequences(
+    entries: list[tuple[int, str]],
+) -> tuple[list[list[tuple[int, str]]], int]:
+    if not entries:
+        return [], 0
+    sequences: list[list[tuple[int, str]]] = [[entries[0]]]
+    hard_out_of_order = 0
+    previous = entries[0][0]
+    for article, section_ref in entries[1:]:
+        if article < previous:
+            if article == 1:
+                sequences.append([(article, section_ref)])
+            else:
+                hard_out_of_order += 1
+                sequences[-1].append((article, section_ref))
+        else:
+            sequences[-1].append((article, section_ref))
+        previous = article
+    return sequences, hard_out_of_order
+
+
+def _main_article_sequence(sequences: list[list[tuple[int, str]]]) -> list[tuple[int, str]]:
+    if not sequences:
+        return []
+    return max(
+        sequences,
+        key=lambda sequence: (
+            len(_ordered_unique_ints([article for article, _section_ref in sequence])),
+            max((article for article, _section_ref in sequence), default=0),
+            len(sequence),
+        ),
+    )
+
+
+def _is_continued_section_ref(section_ref: str | None) -> bool:
+    return bool(section_ref and re.search(r"\s+\(continued\s+\d+\)$", section_ref, flags=re.IGNORECASE))
+
+
 def _chunk_key(row: dict[str, Any]) -> str:
     return str(row.get("id") or row.get("chunk_index") or "")
 
@@ -620,10 +891,11 @@ def _ordered_unique_ints(values: list[int]) -> list[int]:
 
 
 def _missing_articles(article_numbers: list[int], max_article: int | None) -> list[str]:
-    if not max_article or max_article <= 1:
+    if not max_article or max_article <= 1 or not article_numbers:
         return []
+    min_article = min(article_numbers)
     present = set(article_numbers)
-    return [str(article) for article in range(1, max_article + 1) if article not in present]
+    return [str(article) for article in range(min_article, max_article + 1) if article not in present]
 
 
 def _duplicates(values: list[str]) -> list[str]:
