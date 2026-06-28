@@ -1,15 +1,3079 @@
 [
   {
+    "id": "lao_gazette_2597",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ອາກອນລາຍໄດ້ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/88-25-6-2025_0001.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2025,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2597"
+  },
+  {
+    "id": "lao_gazette_2537",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ຄວາມປອດໄພໄຊເບີ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/87.25.6.2025_0001.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2025,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ເຕັກໂນໂລຊີ ແລະ ການສື່ສານ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2537"
+  },
+  {
+    "id": "lao_gazette_2515",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ສາມັນສຶກສາ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/83,25,6,2025_0001.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2025,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສຶກສາທິການ ແລະ ກິລາ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2515"
+  },
+  {
+    "id": "lao_gazette_2505",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ປ້າຍ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/89,25,6,2025_0001.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2025,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ວັດທະນະທຳ ແລະ ການທ່ອງທ່ຽວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2505"
+  },
+  {
+    "id": "lao_gazette_2503",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການປູກຝັງ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/84,25,6,2025_0001.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2025,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ກະສິກຳ ແລະ ສິ່ງແວດລ້ອມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2503"
+  },
+  {
+    "id": "lao_gazette_2473",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ຢາ ແລະ ຜະລິດຕະພັນການແພດ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/85.25.6.2025.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2025,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສາທາລະນະສຸກ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2473"
+  },
+  {
+    "id": "lao_gazette_2468",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ສະພາແຫ່ງຊາດ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/56,28,6,2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສະພາແຫ່ງຊາດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2468"
+  },
+  {
+    "id": "lao_gazette_2469",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ສະພາປະຊາຊົນຂັ້ນແຂວງ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/57,28,6,2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສະພາແຫ່ງຊາດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2469"
+  },
+  {
+    "id": "lao_gazette_2470",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການເລືອກຕັ້ງສະມາຊິກສະພາແຫ່ງຊາດ ແລະ ສະພາປະຊາຊົນຂັ້ນແຂວງ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/58,28,6,2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສະພາແຫ່ງຊາດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2470"
+  },
+  {
+    "id": "lao_gazette_2465",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ຊົນລະປະທານ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/86, 25,6,2025.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2025,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ກະສິກຳ ແລະ ສິ່ງແວດລ້ອມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2465"
+  },
+  {
+    "id": "lao_gazette_2462",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ພະນັກງານໄອຍະການ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/80,25,6,2025.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2025,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ອົງການ ໄອຍະການປະຊາຊົນສູງສຸດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2462"
+  },
+  {
+    "id": "lao_gazette_2455",
+    "title": "ກົດໝາຍວ່າດ້ວຍການປັບປຸງບາງມາດຕາຂອງກົດໝາຍວ່າດ້ວຍສານປະຊາຊົນ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/81,25,6,2025.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2025,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສານປະຊາຊົນສູງສຸດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2455"
+  },
+  {
+    "id": "lao_gazette_2454",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ສັງຄົມສົງເຄາະ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/82,25,6,2025.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2025,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ແຮງງານ ແລະ ສະຫວັດດີການສັງຄົມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2454"
+  },
+  {
+    "id": "lao_gazette_2443",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ອົງການໄອຍະການປະຊາຊົນ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/68,11,12,2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ອົງການ ໄອຍະການປະຊາຊົນສູງສຸດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2443"
+  },
+  {
+    "id": "lao_gazette_2436",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ພະນັກງານ-ລັດຖະກອນ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/79,20,3,2025.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2025,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ຄະນະຈັດຕັ້ງສູນກາງພັກ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2436"
+  },
+  {
+    "id": "lao_gazette_2423",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການດຳເນີນຄະດີແພ່ງ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍວ່າດ້ວຍ ການດໍາເນີນຄະດີແພ່ງ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສານປະຊາຊົນສູງສຸດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2423"
+  },
+  {
+    "id": "lao_gazette_2405",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການປົກຄອງທ້ອງຖິ່ນ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍປົກຄອງທ້ອງຖິ່ນ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2025,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ຄະນະຈັດຕັ້ງສູນກາງພັກ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2405"
+  },
+  {
+    "id": "lao_gazette_2398",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ທີ່ຢູ່ອາໄສ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/71. 11.12.2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ໂຍທາທິການ ແລະ ຂົນສົ່ງ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2398"
+  },
+  {
+    "id": "lao_gazette_2395",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການກວດສອບອິດສະລະ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/73 ສພຊ,11,12,2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2395"
+  },
+  {
+    "id": "lao_gazette_2386",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການສຶກສາ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ 69. 11.12.2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສຶກສາທິການ ແລະ ກິລາ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2386"
+  },
+  {
+    "id": "lao_gazette_2383",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ທະນາຄານແຫ່ງ ສາທາລະນະລັດ ປະຊາທິປະໄຕ ປະຊາຊົນລາວ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ 66. 11.12.2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ທະນາຄານແຫ່ງ ສປປ ລາວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2383"
+  },
+  {
+    "id": "lao_gazette_2369",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການພັດທະນາສີມືແຮງງານ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/70.11.12.2025.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ແຮງງານ ແລະ ສະຫວັດດີການສັງຄົມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2369"
+  },
+  {
+    "id": "lao_gazette_2370",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການພັດທະນາ ແລະ ປົກປ້ອງແມ່ຍິງ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/72.11.12.2025.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສູນກາງ ສະຫະພັນແມ່ຍິງລາວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2370"
+  },
+  {
+    "id": "lao_gazette_2366",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ສະຫະພັນແມ່ຍິງລາວ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/65. 11.12.2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສູນກາງ ສະຫະພັນແມ່ຍິງລາວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2366"
+  },
+  {
+    "id": "lao_gazette_2345",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ອາກອນມູນຄ່າເພີ່ມ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ 60.28.6.2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2345"
+  },
+  {
+    "id": "lao_gazette_2331",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການສະກັດກັ້ນ ແລະ ຕ້ານອັກຄີໄພ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/61.280624.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "state_security",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ປ້ອງກັນຄວາມສະຫງົບ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2331"
+  },
+  {
+    "id": "lao_gazette_2326",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການຕ້ານການສໍ້ລາດບັງຫຼວງ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/52 .28.6.2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ອົງການກວດກາແຫ່ງລັດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2326"
+  },
+  {
+    "id": "lao_gazette_2323",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການປັບປຸງມາດຕາ 18 ຂອງກົດໝາຍວ່າດ້ວຍການລົງທຶນຂອງລັດ ສະບັບປັບປຸງປີ 2015",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/74.12-12-2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2323"
+  },
+  {
+    "id": "lao_gazette_2312",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການປົກປັກຮັກສາສິ່ງແວດລ້ອມ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/53 ກົດໝາຍ ວ່າດ້ວຍການປົກປັກຮັກສາສິ່ງແວດລ້ອມ (ສະບັບປັບປຸງ)28-6-2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ກະສິກຳ ແລະ ສິ່ງແວດລ້ອມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2312"
+  },
+  {
+    "id": "lao_gazette_2311",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການສົ່ງເສີມການລົງທຶນ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/62 ກົດໝາຍ ວ່າດ້ວຍການສົ່ງເສີມການລົງທຶນ ສະບັບປັບປຸງ 28-06-2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2311"
+  },
+  {
+    "id": "lao_gazette_2310",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການກັນ ແລະ ຄວບຄຸມ ເຊື້ອເຮສໄອວີ/ພະຍາດເອດ(ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/59 ກົດໝາຍ ວ່າດ້ວຍການກັນ ແລະ ຄວບຄຸມ ເຊື້ອເຮສໄອວີ:ພະຍາດເອດ ສະບັບປັບປຸງ28-6-2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສາທາລະນະສຸກ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2310"
+  },
+  {
+    "id": "lao_gazette_2304",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການຕ້ານ ການຟອກເງິນ ແລະ ການສະໜອງທຶນໃຫ້ແກ່ການກໍ່ການຮ້າຍ(ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍວ່າດ້ວຍ ການຟອກເງິນ ແລະ ການສະໜອງທຶນໃຫ້ແກ່ການກໍ່ການຣ້າຍ(ສະບັບປັບປຸງ)64.01.07.2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ທະນາຄານແຫ່ງ ສປປ ລາວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2304"
+  },
+  {
+    "id": "lao_gazette_2306",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ຊັບພະຍາກອນທີ່ເປັນຢາ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/55-28-6-2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສາທາລະນະສຸກ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2306"
+  },
+  {
+    "id": "lao_gazette_2302",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການທ່ອງທ່ຽວ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍວ່າດ້ວຍການທ່ອງທ່ຽວ 63, 01.07.2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ວັດທະນະທຳ ແລະ ການທ່ອງທ່ຽວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2302"
+  },
+  {
+    "id": "lao_gazette_2301",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ສະຫະກອນ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍວ່າດ້ວຍສະຫະກອນ 54. 28 ມິຖຸນາ 2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2024,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ກະສິກຳ ແລະ ສິ່ງແວດລ້ອມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2301"
+  },
+  {
+    "id": "lao_gazette_2214",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ຊັບສິນທາງປັນຍາ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/50 ສພຊ 20.11.2023.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2023,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ອຸດສາຫະກຳ ແລະ ການຄ້າ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2214"
+  },
+  {
+    "id": "lao_gazette_2207",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການບັນຊີ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/46ສພຊ20.11.2023.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2023,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2207"
+  },
+  {
+    "id": "lao_gazette_2205",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການປິ່ນປົວ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/48 ສພຊ20.11.2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2023,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສາທາລະນະສຸກ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2205"
+  },
+  {
+    "id": "lao_gazette_2206",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການຮັກສາສຸຂະພາບຂັ້ນຕົ້ນ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/49 ສພຊ20.11.2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2023,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສາທາລະນະສຸກ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2206"
+  },
+  {
+    "id": "lao_gazette_2204",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ຜູ້ພິພາກສາ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/51ສພຊ20.11.2024.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2023,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສານປະຊາຊົນສູງສຸດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2204"
+  },
+  {
+    "id": "lao_gazette_2202",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ລະບົບການຊຳລະ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/45 ສພຊ20.11.2023.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2023,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ທະນາຄານແຫ່ງ ສປປ ລາວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2202"
+  },
+  {
+    "id": "lao_gazette_2203",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການຕິດຕາມກວດກາຂອງສະພາແຫ່ງຊາດ ແລະ ສະພາປະຊາຊົນຂັ້ນແຂວງ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/47 ສພຊ20.11.2023 1.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2023,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສະພາແຫ່ງຊາດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2203"
+  },
+  {
+    "id": "lao_gazette_2154",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການຈັດຫາງານ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/37ສພຊ2023.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2023,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ແຮງງານ ແລະ ສະຫວັດດີການສັງຄົມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2154"
+  },
+  {
+    "id": "lao_gazette_2149",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ເຍົາວະຊົນລາວ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/36ສພຊ17.7.2023.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2023,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສູນກາງຊາວໜຸ່ມປະຊາຊົນປະຕິວັດລາວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2149"
+  },
+  {
+    "id": "lao_gazette_2146",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ສັດນ້ຳ ແລະ ການປະມົງ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/41ສພຊ17.7.2023.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2023,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ກະສິກຳ ແລະ ສິ່ງແວດລ້ອມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2146"
+  },
+  {
+    "id": "lao_gazette_2150",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ອາກອນທີ່ດິນ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/35ສພຊ2023.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2023,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2150"
+  },
+  {
+    "id": "lao_gazette_2142",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ສານທະຫານ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/40ສພຊ17.7.2023.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "state_security",
+    "year": 2023,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ປ້ອງກັນປະເທດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2142"
+  },
+  {
+    "id": "lao_gazette_2137",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ສາທາລະນະສຸກ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/38ສພຊ17.7.2023.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2023,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສາທາລະນະສຸກ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2137"
+  },
+  {
+    "id": "lao_gazette_2138",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການປົກປ້ອງສິດ ແລະ ຜົນປະໂຫຍດຂອງເດັກ ( ສະບັບປັບປງຸ )",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/43ສພຊ17.7.2023.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2023,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ຍຸຕິທໍາ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2138"
+  },
+  {
+    "id": "lao_gazette_2134",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການພິມຈຳໜ່າຍ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/44-17-7-2023.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2023,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ວັດທະນະທຳ ແລະ ການທ່ອງທ່ຽວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2134"
+  },
+  {
+    "id": "lao_gazette_2131",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ສັດປ່າ ( ສະບັບປັບປຸງ )",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/42ສພຊ1772023.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2023,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ກະສິກຳ ແລະ ສິ່ງແວດລ້ອມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2131"
+  },
+  {
+    "id": "lao_gazette_2130",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ທະນາຄານທຸລະກິດ ( ສະບັບປັບປຸງ )",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/39ສພຊ1772023.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2023,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ທະນາຄານແຫ່ງ ສປປ ລາວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2130"
+  },
+  {
+    "id": "lao_gazette_2055",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ວິທະຍາສາດ ແລະ ເຕັກໂນໂລຊີ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/26ສພຊ2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສຶກສາທິການ ແລະ ກິລາ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2055"
+  },
+  {
+    "id": "lao_gazette_2038",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການກັນ ແລະ ຄວບຄຸມພະຍາດຕິດຕໍ່ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/28ສພຊ2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສາທາລະນະສຸກ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2038"
+  },
+  {
+    "id": "lao_gazette_2036",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ວິສາຫະກິດ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/33ສພຊ2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ອຸດສາຫະກຳ ແລະ ການຄ້າ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2036"
+  },
+  {
+    "id": "lao_gazette_2035",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ອົງການໄອຍະການທະຫານ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/30ສພຊ2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "state_security",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ປ້ອງກັນປະເທດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2035"
+  },
+  {
+    "id": "lao_gazette_2033",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການກວດສອບແຫ່ງລັດ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/29ສພຊ2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ອົງການ ກວດສອບແຫ່ງລັດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2033"
+  },
+  {
+    "id": "lao_gazette_2029",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ພິພິທະພັນ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/27ສພຊ2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ວັດທະນະທຳ ແລະ ການທ່ອງທ່ຽວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2029"
+  },
+  {
+    "id": "lao_gazette_2030",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການກວດກາລັດ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/202325ສພຊ2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ອົງການກວດກາແຫ່ງລັດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2030"
+  },
+  {
+    "id": "lao_gazette_2023",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ທຸລະກໍາທາງເອເລັກໂຕຣນິກ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/31ສພຊ2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ເຕັກໂນໂລຊີ ແລະ ການສື່ສານ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2023"
+  },
+  {
+    "id": "lao_gazette_2022",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ໜັງສືຜ່ານແດນ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/32ສພຊ2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "foreign_affairs",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການຕ່າງປະເທດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2022"
+  },
+  {
+    "id": "lao_gazette_2021",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ທະນາຍຄວາມ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/23ສພຊ2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ຍຸຕິທໍາ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2021"
+  },
+  {
+    "id": "lao_gazette_2018",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ທະບຽນສານ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/24ສພຊ2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ຍຸຕິທໍາ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2018"
+  },
+  {
+    "id": "lao_gazette_2017",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການທາງນໍ້າ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/34ສພຊ2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ໂຍທາທິການ ແລະ ຂົນສົ່ງ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2017"
+  },
+  {
+    "id": "lao_gazette_1973",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການແກ້ໄຂຄໍາຮ້ອງທຸກ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/17ສພຊ 7-7-2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສະພາແຫ່ງຊາດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1973"
+  },
+  {
+    "id": "lao_gazette_1972",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການສົ່ງເສີມຈຸນລະວິສາຫະກິດ, ວິສາຫະກິດຂະໜາດນ້ອຍ ແລະ ກາງ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/16ສພຊ7-7-2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ອຸດສາຫະກຳ ແລະ ການຄ້າ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1972"
+  },
+  {
+    "id": "lao_gazette_1971",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍວິຈິດສິນ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/law 19 ສພຊ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ວັດທະນະທຳ ແລະ ການທ່ອງທ່ຽວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1971"
+  },
+  {
+    "id": "lao_gazette_1970",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການຄຸ້ມຄອງ ອາວຸດ ແລະ ວັດຖຸລະເບີດ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/14.ສພຊ 7.7.2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "state_security",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ປ້ອງກັນຄວາມສະຫງົບ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1970"
+  },
+  {
+    "id": "lao_gazette_1969",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍຊັບສິນຂອງລັດ ( ສະບັບປັບປຸງ )",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/18 ສພຊ 7.7.2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1969"
+  },
+  {
+    "id": "lao_gazette_1968",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການປັບປຸງບາງມາດຕາຂອງກົດໝາຍວ່າດ້ວຍ ສານປະຊາຊົນ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/22 ສພຊ. 7.7.2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສານປະຊາຊົນສູງສຸດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1968"
+  },
+  {
+    "id": "lao_gazette_1967",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການຄຸ້ມຄອງເງິນຕາຕ່າງປະເທດ ( ສະບັບປັບປຸງ )",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/15ສພຊ2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "foreign_affairs",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ທະນາຄານແຫ່ງ ສປປ ລາວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1967"
+  },
+  {
+    "id": "lao_gazette_1963",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍ ການປັບປຸງບາງມາດຕາຂອງກົດໝາຍວ່າດ້ວຍ ນໍ້າ ແລະ ຊັບພະຍາກອນນໍ້າ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/21 ສພຊ 7.7.2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ກະສິກຳ ແລະ ສິ່ງແວດລ້ອມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1963"
+  },
+  {
+    "id": "lao_gazette_1938",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍຄວາມປອດໄພຂອງເຂື່ອນ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/20 ສພຊ 7 ກໍລະກົດ 2022.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2022,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ອຸດສາຫະກຳ ແລະ ການຄ້າ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1938"
+  },
+  {
+    "id": "lao_gazette_1881",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການປັບປຸງບາງມາດຕາ ຂອງກົດໝາຍວ່າດ້ວຍງົບປະມານແຫ່ງລັດ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/13ສພຊ2021.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2021,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1881"
+  },
+  {
+    "id": "lao_gazette_2375",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການສ້າງນິຕິກຳ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/06ສພຊ2021.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2021,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ຍຸຕິທໍາ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=2375"
+  },
+  {
+    "id": "lao_gazette_1860",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍລັດຖະບານ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/03ສພຊ2021.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2021,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ຫ້ອງວ່າການສຳນັກງານນາຍົກລັດຖະມົນຕີ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1860"
+  },
+  {
+    "id": "lao_gazette_1859",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການປະຕິບັດຄໍາຕັດສິນຂອງສານ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/12ສພຊ2021.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2021,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ຍຸຕິທໍາ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1859"
+  },
+  {
+    "id": "lao_gazette_1858",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍຊາຍແດນແຫ່ງຊາດ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/10ສພຊ2021.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "foreign_affairs",
+    "year": 2021,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການຕ່າງປະເທດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1858"
+  },
+  {
+    "id": "lao_gazette_1852",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການໂທລະຄົມມະນາຄົມ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/05ສພຊ2021.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2021,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ເຕັກໂນໂລຊີ ແລະ ການສື່ສານ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1852"
+  },
+  {
+    "id": "lao_gazette_1851",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍເຕັກໂນໂລຊີລະດັບສູງ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/07ສພຊ2021.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2021,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ເຕັກໂນໂລຊີ ແລະ ການສື່ສານ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1851"
+  },
+  {
+    "id": "lao_gazette_1850",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍມໍຣະດົກແຫ່ງຊາດ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/11ສພຊ2021.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2021,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ວັດທະນະທຳ ແລະ ການທ່ອງທ່ຽວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1850"
+  },
+  {
+    "id": "lao_gazette_1845",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການຄວບຄຸມຢາສູບ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/09ສພຊ2021.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2021,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສາທາລະນະສຸກ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1845"
+  },
+  {
+    "id": "lao_gazette_1844",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍຍານພາຫະນະທາງບົກ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/04ສພຊ2021.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2021,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ໂຍທາທິການ ແລະ ຂົນສົ່ງ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1844"
+  },
+  {
+    "id": "lao_gazette_1843",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການສໍາຫຼວດວັດແທກ ແລະ ສ້າງແຜນທີ່",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/08ສພຊ2021.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2021,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ພາຍໃນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1843"
+  },
+  {
+    "id": "lao_gazette_1828",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການປັບປຸງບາງມາດຕາຂອງກົດໝາຍກ່ຽວກັບສ່ວຍສາອາກອນ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/01ສພຊ2021.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2021,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1828"
+  },
+  {
+    "id": "lao_gazette_1825",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການປັບປຸງບາງມາດຕາຂອງກົດໝາຍວ່າດ້ວຍຢາເສບຕິດ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/02ສພຊ2021.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "state_security",
+    "year": 2021,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ປ້ອງກັນຄວາມສະຫງົບ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1825"
+  },
+  {
+    "id": "lao_gazette_1743",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍຊາວໜຸ່ມລາວ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/86ສພຊ2020.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2020,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສູນກາງຊາວໜຸ່ມປະຊາຊົນປະຕິວັດລາວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1743"
+  },
+  {
+    "id": "lao_gazette_1733",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການຮ່ວມມືລະຫວ່າງປະເທດທາງອາຍາ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/88ສພຊ2020.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "state_security",
+    "year": 2020,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ປ້ອງກັນຄວາມສະຫງົບ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1733"
+  },
+  {
+    "id": "lao_gazette_1731",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການສຶກສາຊັ້ນສູງ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/87ສພຊ2020.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2020,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສຶກສາທິການ ແລະ ກິລາ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1731"
+  },
+  {
+    "id": "lao_gazette_1729",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍຊັ້ນນັກການທູດ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/85ສພຊ2020.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "foreign_affairs",
+    "year": 2020,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການຕ່າງປະເທດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1729"
+  },
+  {
+    "id": "lao_gazette_1692",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍພາສີ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/81ສພຊ2020.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2020,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1692"
+  },
+  {
+    "id": "lao_gazette_1656",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍທີ່ດິນ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/70ສພຊ2019.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2019,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ກະສິກຳ ແລະ ສິ່ງແວດລ້ອມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1656"
+  },
+  {
+    "id": "lao_gazette_1635",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍຫຼັກຊັບ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Securities.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2019,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ທະນາຄານແຫ່ງ ສປປ ລາວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1635"
+  },
+  {
+    "id": "lao_gazette_1625",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການຟື້ນຟູ ແລະ ການລົ້ມລະລາຍຂອງວິສາຫະກິດ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/75ສພຊ2019 new.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2019,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ຍຸຕິທໍາ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1625"
+  },
+  {
+    "id": "lao_gazette_1624",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການອະນາໄມ ແລະ ສົ່ງເສີມສຸຂະພາບ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/73ສພຊ2019.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2019,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສາທາລະນະສຸກ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1624"
+  },
+  {
+    "id": "lao_gazette_1623",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍຮູບເງົາ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/76ສພຊ2019.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2019,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ວັດທະນະທຳ ແລະ ການທ່ອງທ່ຽວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1623"
+  },
+  {
+    "id": "lao_gazette_1614",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍກິລາ-ກາຍຍະກຳ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍ ວ່າດ້ວຍກິລາ-ກາາຍະກຳ ປັບປຸງ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2019,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສຶກສາທິການ ແລະ ກິລາ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1614"
+  },
+  {
+    "id": "lao_gazette_1612",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍຄວາມສະເໝີພາບຍິງ-ຊາຍ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍ ຄວາມສະເໝີພາຍ ຍິງ-ຊາຍ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2019,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສູນກາງ ສະຫະພັນແມ່ຍິງລາວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1612"
+  },
+  {
+    "id": "lao_gazette_1611",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການປະກັນໄພ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/78ສພຊ2019.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2019,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1611"
+  },
+  {
+    "id": "lao_gazette_1582",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການຄຸ້ມຄອງສ່ວຍສາອາກອນ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກໝ ຄຸ້ມຄອງສ່ວຍສາອາກອນ ປັບປຸງ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2019,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1582"
+  },
+  {
+    "id": "lao_gazette_1580",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍອາກອນຊົມໃຊ້",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍ ວ່າດ້ວຍອາກອນຊົມໃຊ້.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2019,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1580"
+  },
+  {
+    "id": "lao_gazette_1579",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍຄ່າທໍານຽມສານ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກໝ ຄ່າທຳນຽມສານ ປັບປຸງ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2019,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສານປະຊາຊົນສູງສຸດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1579"
+  },
+  {
+    "id": "lao_gazette_1554",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການຕອບໂຕ້ ການທຸ່ມຕະຫຼາດ ແລະ ການຊ່ວຍໜູນ ຂອງປະເທດຜູ້ສົ່ງອອກ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/65ສພຊ2019.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2019,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ອຸດສາຫະກຳ ແລະ ການຄ້າ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1554"
+  },
+  {
+    "id": "lao_gazette_1552",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍອາຊີວະສຶກສາ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/63ສພຊ2019.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2019,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສຶກສາທິການ ແລະ ກິລາ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1552"
+  },
+  {
+    "id": "lao_gazette_1550",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍເອກະສານ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/69 ສພຊ 2019.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2019,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ພາຍໃນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1550"
+  },
+  {
+    "id": "lao_gazette_1547",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍປ່າໄມ້ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/64ສພຊ2019.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2019,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ກະສິກຳ ແລະ ສິ່ງແວດລ້ອມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1547"
+  },
+  {
+    "id": "lao_gazette_1546",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການຄຸ້ມຄອງໄພພິບັດ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/71ສພຊ2019.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2019,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ແຮງງານ ແລະ ສະຫວັດດີການສັງຄົມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1546"
+  },
+  {
+    "id": "lao_gazette_1524",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍຄວາມປອດໄພຈາກລັງສີ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/61ສພຊ2019.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2018,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສຶກສາທິການ ແລະ ກິລາ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1524"
+  },
+  {
+    "id": "lao_gazette_1519",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍສຳນັກງານຜູ້ຕາງໜ້າ ແຫ່ງ ສາທາລະນະລັດ ປະຊາທິປະໄຕ ປະຊາຊົນລາວ ປະຈຳຢູ່ຕ່າງປະເທດ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/58ສພຊ2019.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "foreign_affairs",
+    "year": 2018,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການຕ່າງປະເທດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1519"
+  },
+  {
+    "id": "lao_gazette_1499",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການປະກັນສຸຂະພາບ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/60ສພຊ2019.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2018,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສາທາລະນະສຸກ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1499"
+  },
+  {
+    "id": "lao_gazette_1497",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍຄົນພິການ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/57ສພຊ2019.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2018,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ແຮງງານ ແລະ ສະຫວັດດີການສັງຄົມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1497"
+  },
+  {
+    "id": "lao_gazette_1495",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍລາຍເຊັນເອເລັກໂຕຣນິກ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/59ສພຊ2019.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2018,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ເຕັກໂນໂລຊີ ແລະ ການສື່ສານ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1495"
+  },
+  {
+    "id": "lao_gazette_1491",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການລົດໄຟ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/62ສພຊ2019.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2018,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ໂຍທາທິການ ແລະ ຂົນສົ່ງ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1491"
+  },
+  {
+    "id": "lao_gazette_1442",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການປະກັນສັງຄົມ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Law54ສພຊ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2018,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ແຮງງານ ແລະ ສະຫວັດດີການສັງຄົມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1442"
+  },
+  {
+    "id": "lao_gazette_1423",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການແກ້ໄຂຂໍ້ຂັດແຍ່ງທາງດ້ານເສດຖະກິດ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/148ແກ້ໄຂຂໍ້ຂັດແຍ່ງ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2018,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ຍຸຕິທໍາ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1423"
+  },
+  {
+    "id": "lao_gazette_1421",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການບິນພົນລະເຮືອນ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/L145.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2018,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ໂຍທາທິການ ແລະ ຂົນສົ່ງ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1421"
+  },
+  {
+    "id": "lao_gazette_1420",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການດຳເນີນຄະດີອາຍາ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ດຳເນີນຄະດີອາຍາ37.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ອົງການ ໄອຍະການປະຊາຊົນສູງສຸດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1420"
+  },
+  {
+    "id": "lao_gazette_1411",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການຈັດສັນພູມລຳເນົາ ແລະ ອາຊີບ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ຈັດສັນພູມລຳເນົາແລະອາຊີບ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2018,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ກະສິກຳ ແລະ ສິ່ງແວດລ້ອມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1411"
+  },
+  {
+    "id": "lao_gazette_1412",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ແນວລາວສ້າງຊາດ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ແນວລາວສ້າງຊາດ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2018,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສູນກາງ ແນວລາວສ້າງຊາດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1412"
+  },
+  {
+    "id": "lao_gazette_1394",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການຄຸ້ມຄອງໜີ້ສິນສາທາລະນະ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ຄຸ້ມຄອງໜີ້ສິນສາທາລະນະ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2018,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1394"
+  },
+  {
+    "id": "lao_gazette_1385",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍນາຍທະຫານກອງທັບປະຊາຊົນລາວ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/The military commander of the Lao People&#039;s Army.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "state_security",
+    "year": 2018,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ປ້ອງກັນປະເທດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1385"
+  },
+  {
+    "id": "lao_gazette_1383",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການໃຫ້ວັກຊີນກັນພະຍາດ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/555555555555.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2018,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສາທາລະນະສຸກ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1383"
+  },
+  {
+    "id": "lao_gazette_1382",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍທະບຽນຄອບຄົວ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Family registration.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2018,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ພາຍໃນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1382"
+  },
+  {
+    "id": "lao_gazette_1381",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍສະຫະພັນນັກຮົບເກົ່າລາວ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Veterans Union.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2018,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສະຫະພັນນັກຮົບເກົ່າແຫ່ງຊາດລາວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1381"
+  },
+  {
+    "id": "lao_gazette_1352",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ໄຟຟ້າ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດ​ໝາຍ​ວ່າ​ດ້ວຍ ໄຟ​ຟ້າ (ປັບ​ປຸງ).pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ອຸດສາຫະກຳ ແລະ ການຄ້າ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1352"
+  },
+  {
+    "id": "lao_gazette_1341",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ແຮ່ທາດ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍວ່າດ້ວຍ ແຮ່ທາດ (ສະບັບປັບປຸງ).pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ອຸດສາຫະກຳ ແລະ ການຄ້າ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1341"
+  },
+  {
+    "id": "lao_gazette_1315",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການຜັງເມືອງ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດ​ໝາຍ ວ່າ​ດ້ວຍ​ການ​ຜັງ​ເມືອງ (ສະ​ບັບ​ປັບ​ປຸງ).pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ໂຍທາທິການ ແລະ ຂົນສົ່ງ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1315"
+  },
+  {
+    "id": "lao_gazette_1309",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການຖ່າຍທອດເຕັກໂນໂລຊີ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດ​ໝາຍ ວ່າ​ດ້ວຍ​ການ​ຖ່າຍ​ທອດ​ເຕັກ​ໂນ​ໂລ​ຊີ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ເຕັກໂນໂລຊີ ແລະ ການສື່ສານ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1309"
+  },
+  {
+    "id": "lao_gazette_1281",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການຈັດຊື້-ຈັດຈ້າງດ້ວຍທຶນຂອງລັດ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດ​ໝາຍ ວ່າ​ດ້ວຍ​ການ​ຈັດ​ຊື້-ຈັດ​ຈ້າງ​ດ້ວຍ​ທຶນ​ຂອງ​ລັດ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1281"
+  },
+  {
+    "id": "lao_gazette_1280",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການປົກປ້ອງຜູ້ຜະລິດທີ່ໄດ້ຮັບຜົນກະທົບຈາກການນຳເຂົ້າສິນຄ້າ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດ​ໝາຍ​ວ່າ​ດ້ວຍ ການ​ປົກ​ປ້ອງ​ຜູ້​ຜະລິດ ທີ່​ໄດ້​ຮັບ​ຜົນ​ກະ​ທົບ​​ນຳ​ເຂົ້າ​ສິນ​ຄ້າ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ອຸດສາຫະກຳ ແລະ ການຄ້າ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1280"
+  },
+  {
+    "id": "lao_gazette_1277",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ສັນຊາດລາວ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Law on Lao Nationality (Amended).pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ຍຸຕິທໍາ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1277"
+  },
+  {
+    "id": "lao_gazette_1275",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍວຽກງານກາແດງລາວ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍວ່າດ້ວຍ ວຽກງານກາແດງລາວ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ອົງການກາແດງແຫ່ງຊາດລາວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1275"
+  },
+  {
+    "id": "lao_gazette_1273",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍກຳມະບານລາວ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດ​ໝາຍ​ວ່າ​ດ້ວຍ ກຳ​ມະ​ບານ​ລາວ (ສ​ະ​ບັບ​ປັບ​ປຸງ).pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສູນກາງສະຫະພັນກຳມະບານລາວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1273"
+  },
+  {
+    "id": "lao_gazette_1274",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍອຸຕຸນິຍົມ ແລະ ອຸທົກກະສາດ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດ​ໝາຍ ວ່າ​ດ້ວຍ​ອຸ​ຕຸ​ນິ​ຍົມ ແລະ ອຸ​ທົກ​ກະ​ສາດ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ກະສິກຳ ແລະ ສິ່ງແວດລ້ອມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1274"
+  },
+  {
+    "id": "lao_gazette_1243",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍສານປະຊາຊົນ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍ ​ວ່າດ​ວ້ຍສານ​ປະ​ຊາ​ຊົນ (ປັບ​ປຸງ) .pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສານປະຊາຊົນສູງສຸດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1243"
+  },
+  {
+    "id": "lao_gazette_1232",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍກຳລັງປ້ອງກັນຄວາມສະຫງົບປະຊາຊົນ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Law on People Security Forces (Amended).pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "state_security",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ປ້ອງກັນຄວາມສະຫງົບ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1232"
+  },
+  {
+    "id": "lao_gazette_1228",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍສົນທິສັນຍາ ແລະ ສັນຍາສາກົນ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/0206579.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "foreign_affairs",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການຕ່າງປະເທດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1228"
+  },
+  {
+    "id": "lao_gazette_1224",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ນ້ຳ ແລະ ຊັບພະຍາກອນນ້ຳ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍ ນ້ຳ ແລະ ຊັບພະຍາກອນນ້ຳ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ກະສິກຳ ແລະ ສິ່ງແວດລ້ອມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1224"
+  },
+  {
+    "id": "lao_gazette_1217",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍຄື້ນຄວາມຖີ່ວິທະຍຸສື່ສານ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/0918571.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ເຕັກໂນໂລຊີ ແລະ ການສື່ສານ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1217"
+  },
+  {
+    "id": "lao_gazette_1216",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການປົກປ້ອງຂໍ້ມູນເອເລັກໂຕຣນິກ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/0918570.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ເຕັກໂນໂລຊີ ແລະ ການສື່ສານ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1216"
+  },
+  {
+    "id": "lao_gazette_1195",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍສິລະປະການສະແດງ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Law on performing arts.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ວັດທະນະທຳ ແລະ ການທ່ອງທ່ຽວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1195"
+  },
+  {
+    "id": "lao_gazette_1191",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ຄະນະຊາວໜຸ່ມປະຊາຊົນປະຕິວັດລາວ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍຄະນະຊາວໜຸ່ມປະຊາຊົນປະຕິວັດລາວ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສູນກາງຊາວໜຸ່ມປະຊາຊົນປະຕິວັດລາວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1191"
+  },
+  {
+    "id": "lao_gazette_1188",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ສະຖິຕິ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍສະຖິຕິ(ປັບປຸງ).pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2017,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1188"
+  },
+  {
+    "id": "lao_gazette_1153",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍສື່ມວນຊົນ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍສື່ມວນຊົນ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2016,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ວັດທະນະທຳ ແລະ ການທ່ອງທ່ຽວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1153"
+  },
+  {
+    "id": "lao_gazette_1161",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ທາງຫຼວງ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/1, ກົດໝາຍວ່າດ້ວຍ ທາງຫຼວງ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2016,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ໂຍທາທິການ ແລະ ຂົນສົ່ງ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1161"
+  },
+  {
+    "id": "lao_gazette_1152",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການລ້ຽງສັດ ແລະ ການສັດຕະວະແພດ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍ ການລ້ຽງສັດ ແລະ ສັດຕະວະແພດ.....pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2016,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ກະສິກຳ ແລະ ສິ່ງແວດລ້ອມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1152"
+  },
+  {
+    "id": "lao_gazette_1142",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການຄຸ້ມຄອງເຄມີ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍວ່າດ້ວຍການຄູ້ມຄອງເຄມີ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2016,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ອຸດສາຫະກຳ ແລະ ການຄ້າ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1142"
+  },
+  {
+    "id": "lao_gazette_1136",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ເຕັກໂນໂລຊີການສື່ສານ ຂໍ້ມູນ ຂ່າວສານ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍເຕັກໂນໂລຊີການສື່ສານ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2016,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ເຕັກໂນໂລຊີ ແລະ ການສື່ສານ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1136"
+  },
+  {
+    "id": "lao_gazette_1134",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການປ້ອງກັນ ແລະ ການກັກກັນພືດ ( ສະບັບປັບປຸງ )",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍກັກກັນພືດ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "state_security",
+    "year": 2016,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ກະສິກຳ ແລະ ສິ່ງແວດລ້ອມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=1134"
+  },
+  {
+    "id": "lao_gazette_946",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການລົງທຶນຂອງລັດ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍ ການລົງທຶນຂອງລັດ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2015,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=946"
+  },
+  {
+    "id": "lao_gazette_928",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ງົບປະມານແຫ່ງລັດ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ງົບປະມານແຫ່ງລັດ(ສະບັບປັບປຸງ).pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2015,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=928"
+  },
+  {
+    "id": "lao_gazette_918",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການປ້ອງກັນຊາດ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍວ່າດ້ວຍ ການປ້ອງກັນຊາດ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "state_security",
+    "year": 2015,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ປ້ອງກັນປະເທດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=918"
+  },
+  {
+    "id": "lao_gazette_913",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການຕ້ານການຄ້າມະນຸດ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍ ວ່າດ້ວຍການຕ້ານການຄ້າມະນຸດ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "state_security",
+    "year": 2015,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ປ້ອງກັນຄວາມສະຫງົບ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=913"
+  },
+  {
+    "id": "lao_gazette_880",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍແຂ່ງຂັນທາງທຸລະກິດ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍ ວ່າດ້ວຍການແຂ່ງຂັນທາງທຸລະກີດ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2015,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ອຸດສາຫະກຳ ແລະ ການຄ້າ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=880"
+  },
+  {
+    "id": "lao_gazette_861",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍ ການຕ້ານ ແລະ ສະກັດກັ້ນອາຊະຍາກຳທາງລະບົບຄອມພິວເຕີ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/1. Law on cyber crime.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2015,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ເຕັກໂນໂລຊີ ແລະ ການສື່ສານ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=861"
+  },
+  {
+    "id": "lao_gazette_819",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍ ການເຂົ້າ-ອອກ ແລະ ຄຸ້ມຄອງ ຄົນຕ່າງປະເທດ ຢູ່ ສປປ ລາວ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍວ່າດ້ວຍ ການເຂົ້າ-ອອກ ແລະ ຄຸ້ມຄອງຄົນຕ່າງປະເທດ ຢູ່ ສປປ ລາວ...pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "foreign_affairs",
+    "year": 2014,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ປ້ອງກັນຄວາມສະຫງົບ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=819"
+  },
+  {
+    "id": "lao_gazette_800",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການຕ້ານ ແລະ ສະກັດກັ້ນການໃຊ້ຄວາມຮຸນແຮງ ຕໍ່ແມ່ຍິງ ແລະ ເດັກ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍວ່າດ້ວຍ ການຕ້ານ ແລະ ສະກັດກັ້ນການໃຊ້ຄວາມຮຸນແຮງຕໍ່ແມ່ຍິງ ແລະ ເດັກ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2014,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ສູນກາງ ສະຫະພັນແມ່ຍິງລາວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=800"
+  },
+  {
+    "id": "lao_gazette_794",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍການຄວບຄຸມ ເຄື່ອງດື່ມທີ່ມີທາດເຫຼົ້າ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍ ວ່າດ້ວຍ ການຄວບຄຸມເຄື່ອງດື່ມທີ່ມີທາດເຫຼົ້າ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2014,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສາທາລະນະສຸກ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=794"
+  },
+  {
+    "id": "lao_gazette_714",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍມາດຕະຖານ(ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/3. ກົດໝາຍ ວ່າດ້ວຍມາດຕະຖານ(ສະບັບປັບປຸງ).pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2014,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ອຸດສາຫະກຳ ແລະ ການຄ້າ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=714"
+  },
+  {
+    "id": "lao_gazette_667",
+    "title": "ກົດ​ໝາຍ ວ່າ​ດ້ວຍ​ແຮງ​ງານ ສະ​ບັບ​ປັບ​ປຸງ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດໝາຍວ່າດ້ວຍແຮງງານ ສະບັບປັບປຸງ (2).pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2013,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ແຮງງານ ແລະ ສະຫວັດດີການສັງຄົມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=667"
+  },
+  {
+    "id": "lao_gazette_543",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ອຸດສາຫະກຳປຸງແຕ່ງ (ສະບັບປັບປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/The Industrial Processing  Law ( Amended ) .pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2013,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ອຸດສາຫະກຳ ແລະ ການຄ້າ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=543"
+  },
+  {
+    "id": "lao_gazette_502",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການໄປສະນີ ( ສະບັບປັບປຸງ )",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Postal Law( Amended ).pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "constitution_justice",
+    "year": 2013,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ເຕັກໂນໂລຊີ ແລະ ການສື່ສານ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=502"
+  },
+  {
+    "id": "lao_gazette_572",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ຄວາມປອດໄພດ້ານເຕັກໂນໂລຊີ ຊີວະພາບ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Bio  Technology Safety Law.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2013,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ກະສິກຳ ແລະ ສິ່ງແວດລ້ອມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=572"
+  },
+  {
+    "id": "lao_gazette_571",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການດຳເນີນຄະດີເດັກ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Children Procedure   Law  .pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2013,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ອົງການ ໄອຍະການປະຊາຊົນສູງສຸດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=571"
+  },
+  {
+    "id": "lao_gazette_568",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ວຽກງານປ້ອງກັນຄວາມສະຫງົບແຫ່ງຊາດ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/The protection of national security Law.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "state_security",
+    "year": 2013,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ປ້ອງກັນຄວາມສະຫງົບ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=568"
+  },
+  {
+    "id": "lao_gazette_536",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການວັດແທກ ( ສະບັບປັບປຸງ )",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Measure Law .pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2013,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ອຸດສາຫະກຳ ແລະ ການຄ້າ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=536"
+  },
+  {
+    "id": "lao_gazette_548",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການຄໍ້າປະກັນ ການປະຕິບັດສັນຍາ ( ສະບັບປັບປຸງ )",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/The brown guaranteed performance contracts  Law.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2005,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການເງິນ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=548"
+  },
+  {
+    "id": "lao_gazette_557",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການສົ່ງຜູ້ຮ້າຍຂ້າມແດນ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Extradition Law .pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "foreign_affairs",
+    "year": 2012,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ການຕ່າງປະເທດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=557"
+  },
+  {
+    "id": "lao_gazette_545",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການປົກປ້ອງຜູ້ຊົມໃຊ້",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Protecting consumers Law .pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2010,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ອຸດສາຫະກຳ ແລະ ການຄ້າ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=545"
+  },
+  {
+    "id": "lao_gazette_540",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ຫັດຖະກຳ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Handicraft Law .pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2008,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ອຸດສາຫະກຳ ແລະ ການຄ້າ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=540"
+  },
+  {
+    "id": "lao_gazette_532",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ຫໍສະໝຸດ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Library Law.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2011,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ວັດທະນະທຳ ແລະ ການທ່ອງທ່ຽວ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=532"
+  },
+  {
+    "id": "lao_gazette_512",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ຢາເສບຕິດ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Drug Law.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "state_security",
+    "year": 2007,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ປ້ອງກັນຄວາມສະຫງົບ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=512"
+  },
+  {
+    "id": "lao_gazette_500",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ພັນທະປ້ອງກັນຊາດ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Defense obligations Law .pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "state_security",
+    "year": 2012,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ປ້ອງກັນປະເທດ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=500"
+  },
+  {
+    "id": "lao_gazette_445",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ກະສິກຳ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/ກົດ​ໝາຍ​ວ່າ​ດ້ວຍ ກະ​ສິ​ກຳ.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 1998,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ກະສິກຳ ແລະ ສິ່ງແວດລ້ອມ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=445"
+  },
+  {
+    "id": "lao_gazette_440",
+    "title": "ກົດໝາຍ ວ່າດ້ວຍອາຫານ ( ສະບັບປັບປຸງ )",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Food Law.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "social_culture",
+    "year": 2013,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ສາທາລະນະສຸກ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=440"
+  },
+  {
+    "id": "lao_gazette_436",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ນ້ຳປະປາ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/water suspry  Law.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2009,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ໂຍທາທິການ ແລະ ຂົນສົ່ງ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=436"
+  },
+  {
+    "id": "lao_gazette_435",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການກໍ່ສ້າງ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Construction Law.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2009,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ໂຍທາທິການ ແລະ ຂົນສົ່ງ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=435"
+  },
+  {
+    "id": "lao_gazette_434",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການຂົນສົ່ງຫລາຍຮູບແບບ",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Multi Transportation Law.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2012,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ໂຍທາທິການ ແລະ ຂົນສົ່ງ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=434"
+  },
+  {
+    "id": "lao_gazette_433",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການຈະລາຈອນທາງບົກ (ສະບັບປັງປຸງ)",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/Traffic Raod Law .pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2012,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ໂຍທາທິການ ແລະ ຂົນສົ່ງ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=433"
+  },
+  {
+    "id": "lao_gazette_432",
+    "title": "ກົດໝາຍວ່າດ້ວຍ ການຂົນສົ່ງທາງບົກ ( ສະບັບປັບປຸງ )",
+    "url": "https://laoofficialgazette.gov.la/kcfinder/upload/files/land Transportation Law.pdf",
+    "document_type": "law",
+    "jurisdiction": "laos",
+    "law_category": "economy",
+    "year": 2012,
+    "language": "lo",
+    "tags": [
+      "official_gazette",
+      "lao_law",
+      "ກະຊວງ ໂຍທາທິການ ແລະ ຂົນສົ່ງ"
+    ],
+    "review_status": "approved",
+    "notes": "Scraped from Lao Official Gazette display https://laoofficialgazette.gov.la/index.php?r=site/display&amp;id=432"
+  },
+  {
     "id": "lao_land_law_70_na_2019_lo",
     "title": "ກົດໝາຍວ່າດ້ວຍທີ່ດິນ (ສະບັບປັບປຸງ), ເລກທີ 70/ສພຊ, 21 ມິຖຸນາ 2019",
     "url": "https://www.laotradeportal.gov.la/upload/files/Legal_1666079628lo_LA.pdf",
     "document_type": "law",
     "jurisdiction": "laos",
     "law_category": "economy",
-    "law_no": "70/NA",
     "year": 2019,
     "language": "lo",
-    "tags": ["land", "property", "official", "priority"],
+    "tags": [
+      "land",
+      "property",
+      "official",
+      "priority"
+    ],
     "review_status": "approved",
     "notes": "Primary Lao land law — required for land-rights benchmark coverage."
   },
@@ -20,12 +3084,14 @@
     "document_type": "law",
     "jurisdiction": "laos",
     "law_category": "economy",
-    "law_no": "70/NA",
     "year": 2019,
     "language": "lo",
-    "tags": ["land", "property", "liwg"],
+    "tags": [
+      "land",
+      "property",
+      "liwg"
+    ],
     "review_status": "approved",
-    "enabled": false,
     "notes": "Alternate Lao PDF; enable only if trade-portal copy is incomplete."
   },
   {
@@ -35,10 +3101,14 @@
     "document_type": "law",
     "jurisdiction": "laos",
     "law_category": "economy",
-    "law_no": "70/NA",
     "year": 2019,
     "language": "en",
-    "tags": ["land", "property", "english", "unofficial_translation"],
+    "tags": [
+      "land",
+      "property",
+      "english",
+      "unofficial_translation"
+    ],
     "review_status": "approved",
     "notes": "English reference only — Lao official text takes precedence at answer time."
   }

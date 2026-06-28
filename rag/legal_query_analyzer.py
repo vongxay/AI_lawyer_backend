@@ -172,12 +172,31 @@ class LegalQueryAnalyzer:
                 "tenant",
                 "landlord",
             ),
-            "labor": ("labor", "labour", "employment", "employee", "termination", "wage", "salary", "severance"),
-            "company": ("company", "enterprise", "shareholder", "director", "investment", "business license"),
-            "tax": ("tax", "vat", "customs", "excise", "income tax", "withholding"),
-            "family": ("marriage", "divorce", "child", "custody", "inheritance", "succession", "spouse"),
-            "criminal": ("criminal", "police", "detention", "bail", "offence", "offense", "penalty", "prosecutor"),
-            "contract": ("contract", "agreement", "breach", "debt", "obligation", "damages"),
+            "labor": (
+                "labor", "labour", "employment", "employee", "termination", "wage", "salary", "severance",
+                "ແຮງງານ", "ນາຍຈ້າງ", "ລູກຈ້າງ", "ຜູ້ອອກແຮງງານ", "ໄລ່ອອກ", "ເລີກຈ້າງ",
+                "ຄ່າຊົດເຊີຍ", "ເງິນເດືອນ", "ຄ່າແຮງ", "ສັນຍາຈ້າງງານ",
+            ),
+            "company": (
+                "company", "enterprise", "shareholder", "director", "investment", "business license",
+                "ວິສາຫະກິດ", "ບໍລິສັດ", "ຫຸ້ນສ່ວນ", "ຜູ້ຖືຫຸ້ນ", "ກຳມະການ", "ໃບທະບຽນວິສາຫະກິດ",
+            ),
+            "tax": (
+                "tax", "vat", "customs", "excise", "income tax", "withholding",
+                "ອາກອນ", "ພາສີ", "ມູນຄ່າເພີ່ມ", "ລາຍໄດ້", "ອາກອນລາຍໄດ້", "ສ່ວຍສາ",
+            ),
+            "family": (
+                "marriage", "divorce", "child", "custody", "inheritance", "succession", "spouse",
+                "ຄອບຄົວ", "ຜົວ", "ເມຍ", "ຜົວເມຍ", "ຢ່າຮ້າງ", "ແຕ່ງງານ", "ມໍລະດົກ", "ສິນສົມສ້າງ", "ລ້ຽງດູລູກ",
+            ),
+            "criminal": (
+                "criminal", "police", "detention", "bail", "offence", "offense", "penalty", "prosecutor",
+                "ອາຍາ", "ຄະດີອາຍາ", "ຕຳຫຼວດ", "ຈັບກຸມ", "ກັກຂັງ", "ໂທດ", "ລັກ", "ປຸ້ນ", "ຄາດຕະກຳ", "ໄອຍະການ",
+            ),
+            "contract": (
+                "contract", "agreement", "breach", "debt", "obligation", "damages",
+                "ສັນຍາ", "ຂໍ້ຕົກລົງ", "ຜິດສັນຍາ", "ໜີ້", "ໜີ້ສິນ", "ພັນທະ", "ຊົດໃຊ້ຄ່າເສຍຫາຍ",
+            ),
             "administrative": (
                 "permit", "license", "registration", "ministry", "government", "public service",
                 "\u0e81\u0e87", "\u0e81\u0e0e", "\u0ec3\u0e9a\u0ead\u0ecd", "\u0ec3\u0e9a\u0ead\u0eb3\u0e99\u0eb2\u0e8a",
@@ -185,7 +204,9 @@ class LegalQueryAnalyzer:
             ),
             "investment": ("investment", "foreign", "enterprise", "fdi", "concession", "\u0e81\u0eb2\u0e99\u0e95\u0ecd", "\u0e99\u0ecd\u0e97\u0e97\u0eb8\u0e99"),
             "immigration": ("visa", "passport", "foreigner", "work permit", "residence", "\u0ec1\u0e8a\u0ec8", "\u0ec0\u0e9a\u0eb5\u0e81"),
-            "environment": ("environment", "pollution", "forest", "mining", "\u0e9b\u0ec8\u0eb2", "\u0e9b\u0ec8\u0eb2\u0ec1\u0e81\u0e9b", "\u0e9b\u0ec8\u0eb2\u0ec1\u0e81\u0ec1\u0e81\u0e9b"),
+            "environment": ("environment", "pollution", "forest", "mining", "\u0e9b\u0ec8\u0eb2", "\u0e9b\u0ec8\u0eb2\u0ec1\u0e81\u0e9b", "\u0e9b\u0ec8\u0eb2\u0ec1\u0e81\u0ec1\u0e81\u0e9b", "ສິ່ງແວດລ້ອມ"),
+            "education": ("education", "school", "student", "ສຶກສາ", "ສາມັນສຶກສາ", "ນັກຮຽນ", "ໂຮງຮຽນ", "ນັກສຶກສາ"),
+            "health": ("health", "medicine", "medical", "hospital", "ຢາ", "ປິ່ນປົວ", "ສຸຂະພາບ", "ໂຮງໝໍ", "ຄົນເຈັບ", "ຜະລິດຕະພັນການແພດ"),
         }
         for area, markers in areas.items():
             if any(marker in lowered for marker in markers):

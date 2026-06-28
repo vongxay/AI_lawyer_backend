@@ -33,8 +33,28 @@ from rag.graph_expander import GraphExpander
 from rag.legal_query_analyzer import LegalQueryAnalysis, LegalQueryAnalyzer
 from rag.reranker import Reranker
 from rag.retriever import Retriever
+from rag.smart_query_expander import SmartQueryExpander, merge_understanding_into_analysis
 
 log = get_logger(__name__)
+
+# Distinctive Lao title keyword(s) per practice area. Used to deterministically
+# boost chunks whose statute title contains the keyword during reranking, even
+# when the LLM phrases the candidate law differently or the multilingual
+# embedding is weak on Lao. Keywords (not full law names) keep this robust to the
+# exact wording / version suffix of each statute's title.
+_PRACTICE_AREA_LAO_STATUTE = {
+    "land": ["\u0e97\u0eb5\u0ec8\u0e94\u0eb4\u0e99"],                       # ທີ່ດິນ
+    "labor": ["\u0ec1\u0eae\u0e87\u0e87\u0eb2\u0e99"],                      # ແຮງງານ
+    "family": ["\u0e84\u0ead\u0e9a\u0e84\u0ebb\u0ea7"],                    # ຄອບຄົວ
+    "criminal": ["\u0ead\u0eb2\u0e8d\u0eb2"],                              # ອາຍາ
+    "tax": ["\u0ead\u0eb2\u0e81\u0ead\u0e99"],                             # ອາກອນ
+    "company": ["\u0ea7\u0eb4\u0eaa\u0eb2\u0eab\u0eb0\u0e81\u0eb4\u0e94"],    # ວິສາຫະກິດ
+    "investment": ["\u0e81\u0eb2\u0e99\u0ea5\u0ebb\u0e87\u0e97\u0eb6\u0e99"],  # ການລົງທຶນ
+    "environment": ["\u0eaa\u0eb4\u0ec8\u0e87\u0ec1\u0ea7\u0e94\u0ec9\u0ead\u0ea1"],  # ສິ່ງແວດລ້ອມ
+    "immigration": ["\u0e84\u0ebb\u0e99\u0e95\u0ec8\u0eb2\u0e87\u0e94\u0ec9\u0eb2\u0ea7"],  # ຄົນຕ່າງດ້າວ
+    "education": ["\u0eaa\u0eb6\u0e81\u0eaa\u0eb2"],                         # ສຶກສາ
+    "health": ["\u0e8d\u0eb2", "\u0e9b\u0eb4\u0ec8\u0e99\u0e9b\u0ebb\u0ea7", "\u0eaa\u0eb8\u0e82\u0eb0\u0e9e\u0eb2\u0e9a"],  # ຢາ, ປິ່ນປົວ, ສຸຂະພາບ
+}
 
 if TYPE_CHECKING:
     from supabase import AsyncClient  # pragma: no cover
@@ -58,6 +78,7 @@ class LegalResearchAgent(BaseAgent):
         self._reranker = Reranker()
         self._planner = AgenticRetrievalPlanner()
         self._query_analyzer = LegalQueryAnalyzer()
+        self._query_expander = SmartQueryExpander(llm=self._llm)
         self._embedding_unavailable = False
 
     async def _execute(
@@ -77,10 +98,26 @@ class LegalResearchAgent(BaseAgent):
         )
         effective_jurisdiction = query_analysis.jurisdiction or canonical_jurisdiction_value
 
+        # Smart layer: let a cheap LLM understand colloquial questions and map them
+        # to Lao legal concepts / candidate statutes / articles + a HyDE passage that
+        # makes the semantic embedding far stronger. Pure rule-based keyword analysis
+        # alone returns "general" for natural-language questions and retrieves poorly.
+        analysis_dict = query_analysis.to_dict()
+        hyde_passage = ""
+        if settings.rag_llm_query_understanding:
+            try:
+                understanding = await self._query_expander.expand(question)
+                analysis_dict = merge_understanding_into_analysis(analysis_dict, understanding)
+                hyde_passage = understanding.hyde_passage
+            except Exception as exc:  # noqa: BLE001
+                log.info("research.query_understanding.skipped", error=str(exc))
+
         chunks, retrieval_trace, embedding_tokens, retrieval_coverage = await self._agentic_retrieve(
             question=question,
             jurisdiction=effective_jurisdiction,
             query_analysis=query_analysis,
+            analysis_dict=analysis_dict,
+            hyde_passage=hyde_passage,
             tenant_id=tenant_id,
             top_k=max(settings.rag_top_k, settings.rag_top_k * 2),
         )
@@ -116,12 +153,24 @@ class LegalResearchAgent(BaseAgent):
                 depth=settings.graph_depth,
             )
 
-        # Step 4: Rerank combined results
+        # Step 4: Rerank combined results. Feed the question-understanding signals
+        # (candidate statutes + legal concepts) so the right law is ranked first
+        # even when the multilingual embedding is weak on Lao.
         all_chunks = chunks + graph_results
+        # Precision boost: only the canonical statute for the *determined* practice
+        # area. The LLM's raw candidate-law list is great for recall (it drives the
+        # title fast-path) but too noisy for ranking — e.g. it suggests the Land Law
+        # for a divorce "property division" question — so we keep it out of the boost.
+        focus_titles: list[str] = list(
+            _PRACTICE_AREA_LAO_STATUTE.get(str(analysis_dict.get("practice_area") or ""), [])
+        )
+        focus_terms = list(analysis_dict.get("llm_legal_concepts") or [])
         reranked = await self._reranker.rerank(
             query=question,
             chunks=all_chunks,
             top_k=settings.rag_top_k,
+            focus_titles=focus_titles,
+            focus_terms=focus_terms,
         )
         final_coverage = self._planner.assess_coverage(reranked, effective_jurisdiction)
 
@@ -164,11 +213,31 @@ class LegalResearchAgent(BaseAgent):
         question: str,
         jurisdiction: str | None,
         query_analysis: LegalQueryAnalysis,
+        analysis_dict: dict[str, Any] | None = None,
+        hyde_passage: str = "",
         tenant_id: str | None,
         top_k: int,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int, Any]:
-        analysis = query_analysis.to_dict()
+        analysis = analysis_dict if analysis_dict is not None else query_analysis.to_dict()
         plan = self._planner.plan(question, jurisdiction, analysis=analysis)
+
+        # HyDE: a hypothetical statutory passage embeds much closer to the real law
+        # text than a short colloquial question, dramatically improving semantic recall.
+        concepts = analysis.get("llm_legal_concepts") or []
+        hyde_text = " ".join(part for part in (question, hyde_passage, " ".join(concepts)) if part).strip()
+        if hyde_passage or concepts:
+            plan.insert(
+                0,
+                RetrievalQuery(
+                    query=hyde_text,
+                    purpose="hyde_semantic_primary",
+                    jurisdiction=jurisdiction,
+                    priority=0,
+                    required=True,
+                    metadata={"authority": "hyde", "mode": "semantic"},
+                ),
+            )
+
         chunks, trace, tokens = await self._run_retrieval_plan(plan, tenant_id=tenant_id, top_k=top_k)
         chunks = self._dedupe_chunks(chunks)
         coverage = self._planner.assess_coverage(chunks, jurisdiction)
@@ -298,16 +367,19 @@ class LegalResearchAgent(BaseAgent):
             reason = "embedding_provider_unavailable" if self._embedding_unavailable else "openai_api_key_not_configured"
             log.info("research.embedding.disabled_keyword_only", reason=reason)
 
-        item_results = await asyncio.gather(
-            *[
-                self._run_plan_query(
+        semaphore = asyncio.Semaphore(2)
+
+        async def _limited_plan_query(item: RetrievalQuery) -> tuple[list[dict[str, Any]], dict[str, Any], int, bool]:
+            async with semaphore:
+                return await self._run_plan_query(
                     item,
                     tenant_id=tenant_id,
                     top_k=top_k,
                     can_embed=can_embed,
                 )
-                for item in plan_slice
-            ],
+
+        item_results = await asyncio.gather(
+            *[_limited_plan_query(item) for item in plan_slice],
             return_exceptions=True,
         )
 

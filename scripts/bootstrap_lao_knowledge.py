@@ -62,16 +62,26 @@ async def _source_already_indexed(supabase: Any, source_url: str) -> bool:
     return False
 
 
-async def _download(url: str, *, timeout_seconds: float = 120.0) -> tuple[bytes, str]:
-    timeout = httpx.Timeout(timeout_seconds, connect=10.0)
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        response = await client.get(url)
-        response.raise_for_status()
-        content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
-        if not content_type or content_type == "application/octet-stream":
-            guessed, _ = mimetypes.guess_type(urlparse(url).path)
-            content_type = guessed or "application/pdf"
-        return response.content, content_type
+async def _download(url: str, *, timeout_seconds: float = 120.0, retries: int = 3) -> tuple[bytes, str]:
+    timeout = httpx.Timeout(timeout_seconds, connect=30.0)
+    last_error: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
+                if not content_type or content_type == "application/octet-stream":
+                    guessed, _ = mimetypes.guess_type(urlparse(url).path)
+                    content_type = guessed or "application/pdf"
+                return response.content, content_type
+        except Exception as exc:
+            last_error = exc
+            if attempt < retries:
+                wait = min(2 ** attempt, 30)
+                log.warning("bootstrap.download.retry", url=url, attempt=attempt, wait_seconds=wait, error=str(exc))
+                await asyncio.sleep(wait)
+    raise last_error or RuntimeError(f"Failed to download {url}")
 
 
 async def bootstrap_manifest(
@@ -119,7 +129,12 @@ async def bootstrap_manifest(
             continue
 
         log.info("bootstrap.download.start", entry_id=entry_id, url=url)
-        content, content_type = await _download(url)
+        try:
+            content, content_type = await _download(url)
+        except Exception as exc:
+            log.error("bootstrap.download.failed", entry_id=entry_id, url=url, error=str(exc))
+            results.append({"id": entry_id, "status": "failed", "error": str(exc), "url": url})
+            continue
         size_mb = len(content) / (1024 * 1024)
         if size_mb > settings.max_upload_size_mb:
             results.append({

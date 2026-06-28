@@ -121,7 +121,7 @@ class Settings(BaseSettings):
     # ── Agent Behaviour ────────────────────────────────────────────────────────
     confidence_escalation_threshold: float = 0.70
     confidence_refuse_threshold: float = 0.50
-    agent_timeout_seconds: float = 30.0
+    agent_timeout_seconds: float = 60.0
     agent_max_retries: int = 2
     rag_top_k: int = 10
     graph_depth: int = 2
@@ -130,6 +130,7 @@ class Settings(BaseSettings):
     rag_chunk_overlap_chars: int = 350
     rag_embedding_batch_size: int = 48
     rag_plan_max_queries: int = 5
+    rag_llm_query_understanding: bool = True   # LLM intent/HyDE expansion for smarter retrieval
     reasoning_context_top_k: int = 10
     reasoning_context_chunk_chars: int = 2000
     case_analysis_min_fact_chars: int = 120

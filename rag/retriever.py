@@ -57,6 +57,7 @@ class Retriever:
         self._redis = redis
         self._settings = get_settings()
         self._chunk_search_supports_tenant_param: bool | None = None
+        self._dedicated_rpcs_available: bool | None = None
 
     async def retrieve(
         self,
@@ -123,7 +124,19 @@ class Retriever:
         tenant_id: str | None,
         top_k: int,
     ) -> list[dict[str, Any]]:
-        article_rows, chunk_rows = await asyncio.gather(
+        # Run the title fast-path, direct-article, and semantic+lexical chunk legs
+        # CONCURRENTLY and fuse them. We deliberately do NOT short-circuit on title
+        # matches: a title hint can match a tangential statute (e.g. an authority-
+        # hint expansion), and short-circuiting there would starve the candidate set
+        # so the genuinely relevant law (found via semantic/lexical search) never
+        # surfaces. Semantic search is index-backed and fast, so always run it.
+        title_rows, article_rows, chunk_rows = await asyncio.gather(
+            self._title_statute_search(
+                query=query,
+                jurisdiction=jurisdiction,
+                tenant_id=tenant_id,
+                top_k=top_k,
+            ),
             self._direct_article_search(
                 query=query,
                 jurisdiction=jurisdiction,
@@ -140,7 +153,7 @@ class Retriever:
         )
 
         if chunk_rows or article_rows:
-            combined = self._merge_rows(article_rows, chunk_rows, top_k)
+            combined = self._merge_rows(article_rows, chunk_rows, title_rows, top_k)
             if chunk_rows and self._should_supplement_keyword(query):
                 keyword_rows = await self._direct_keyword_search(
                     query=query,
@@ -169,7 +182,11 @@ class Retriever:
         )
         if keyword_rows:
             log.info("retriever.direct_keyword.ok", results=len(keyword_rows), jurisdiction=jurisdiction)
-            return keyword_rows
+            return self._merge_rows(title_rows, keyword_rows, top_k)
+
+        if title_rows:
+            log.info("retriever.search.ok", results=len(title_rows), jurisdiction=jurisdiction, source="title_only")
+            return title_rows[:top_k]
 
         if not embedding:
             log.info("retriever.keyword_only_no_results", jurisdiction=jurisdiction)
@@ -186,18 +203,21 @@ class Retriever:
         terms = self._keyword_terms(query)
         return bool(self._article_targets_from_terms(terms))
 
-    def _merge_rows(
-        self,
-        primary: list[dict[str, Any]],
-        secondary: list[dict[str, Any]],
-        top_k: int,
-    ) -> list[dict[str, Any]]:
+    def _merge_rows(self, *lists_and_top_k: Any) -> list[dict[str, Any]]:
+        top_k = 10
+        row_lists: list[list[dict[str, Any]]] = []
+        for item in lists_and_top_k:
+            if isinstance(item, int):
+                top_k = item
+            elif isinstance(item, list):
+                row_lists.append(item)
         merged: dict[str, dict[str, Any]] = {}
-        for row in [*primary, *secondary]:
-            key = str(row.get("chunk_id") or row.get("id") or f"{row.get('title')}|{str(row.get('content') or '')[:120]}")
-            existing = merged.get(key)
-            if not existing or self._row_score(row) > self._row_score(existing):
-                merged[key] = row
+        for rows in row_lists:
+            for row in rows:
+                key = str(row.get("chunk_id") or row.get("id") or f"{row.get('title')}|{str(row.get('content') or '')[:120]}")
+                existing = merged.get(key)
+                if not existing or self._row_score(row) > self._row_score(existing):
+                    merged[key] = row
         return sorted(merged.values(), key=self._row_score, reverse=True)[:top_k]
 
     def _row_score(self, row: dict[str, Any]) -> float:
@@ -208,6 +228,87 @@ class Retriever:
                 continue
         return 0.0
 
+    def _title_hints_from_query(self, query: str) -> list[str]:
+        text = str(query or "").strip()
+        if not text:
+            return []
+
+        hints: list[str] = []
+        subject_match = re.search(
+            r"ກົດໝາຍວ່າດ້ວຍ\s+(.+?)(?:\s+ກຳນົດ|\s+ແມ່ນ|\?|$)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if subject_match:
+            hints.append(subject_match.group(1).strip()[:48])
+
+        skip = {"ກົດໝາຍ", "ວ່າດ້ວຍ", "ກຳນົດ", "ແນວໃດ", "ສະບັບ", "ປັບປຸງ"}
+        for token in re.findall(r"[\u0e80-\u0eff]{3,}", text):
+            if token not in skip:
+                hints.append(token)
+
+        hints.extend(extract_lao_legal_terms(text))
+        return unique_terms(hints)[:4]
+
+    async def _title_statute_search(
+        self,
+        *,
+        query: str,
+        jurisdiction: str | None,
+        tenant_id: str | None,
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        if not self._supabase:
+            return []
+
+        hints = self._title_hints_from_query(query)
+        if not hints:
+            return []
+
+        rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for hint in hints:
+            safe_hint = re.sub(r"[%_,()]", " ", hint).strip()
+            if len(safe_hint) < 3:
+                continue
+            for scope in self._keyword_tenant_scopes(tenant_id):
+                try:
+                    request = (
+                        self._supabase.table("document_chunks")
+                        .select(
+                            "source_id, id, tenant_id, source_table, title, content, document_type, "
+                            "jurisdiction, status, review_status, metadata, section_ref"
+                        )
+                        .eq("status", "active")
+                        .eq("review_status", "approved")
+                        .ilike("title", f"%{safe_hint}%")
+                        .limit(max(top_k, top_k * 2))
+                    )
+                    if jurisdiction:
+                        request = request.eq("jurisdiction", jurisdiction)
+                    if scope:
+                        request = request.eq("tenant_id", scope)
+                    else:
+                        request = request.is_("tenant_id", "null")
+                    result = await request.execute()
+                except Exception as exc:
+                    log.debug("retriever.title_search.failed", hint=hint, error=str(exc))
+                    continue
+
+                for row in result.data or []:
+                    normalised = self._normalise_row({**row, "retrieval_source": "title_fast_path", "score": 0.85})
+                    key = str(normalised.get("chunk_id") or normalised.get("id"))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    rows.append(normalised)
+                if len(rows) >= top_k:
+                    break
+            if len(rows) >= top_k:
+                break
+
+        return sorted(rows, key=self._row_score, reverse=True)[:top_k]
+
     async def _chunk_search(
         self,
         *,
@@ -217,40 +318,172 @@ class Retriever:
         tenant_id: str | None,
         top_k: int,
     ) -> list[dict[str, Any]]:
+        # Semantic-first: dedicated single-leg RPCs are index-backed (HNSW + GIN)
+        # and fast. They make meaning-based retrieval the primary signal instead of
+        # degrading to keyword matching. Fall back to the combined hybrid RPC, then
+        # to keyword search, if the dedicated functions are not deployed yet.
+        if self._dedicated_rpcs_available is not False:
+            dedicated = await self._semantic_first_search(
+                query=query,
+                embedding=embedding,
+                jurisdiction=jurisdiction,
+                tenant_id=tenant_id,
+                top_k=top_k,
+            )
+            if dedicated is not None:
+                return dedicated
+
+        return await self._hybrid_rpc_search(
+            query=query,
+            embedding=embedding,
+            jurisdiction=jurisdiction,
+            tenant_id=tenant_id,
+            top_k=top_k,
+        )
+
+    async def _semantic_first_search(
+        self,
+        *,
+        query: str,
+        embedding: list[float] | None,
+        jurisdiction: str | None,
+        tenant_id: str | None,
+        top_k: int,
+    ) -> list[dict[str, Any]] | None:
+        """Run dedicated semantic + lexical RPCs in parallel and fuse them.
+
+        Returns a (possibly empty) list when the dedicated RPCs exist, or None
+        when they are missing so the caller can fall back to the hybrid RPC.
+        """
         settings = get_settings()
         effective_tenant_id = tenant_id or settings.default_tenant_id
         fts_query = prepare_lao_fts_query(query, jurisdiction=jurisdiction)
-        params: dict[str, Any] = {
-            "query_text": fts_query,
-            "match_count": top_k,
-            "rrf_k": 60,
+
+        base: dict[str, Any] = {
             "p_status": "active",
             "p_review_status": "approved",
             "p_tenant_id": effective_tenant_id,
             "p_law_category": None,
+            "match_count": top_k,
         }
-        if embedding:
-            params["query_embedding"] = embedding
         if jurisdiction:
-            params["p_jurisdiction"] = jurisdiction
+            base["p_jurisdiction"] = jurisdiction
 
-        try:
-            result = await self._supabase.rpc("hybrid_document_chunk_search", params).execute()
-            self._chunk_search_supports_tenant_param = True
-            return [self._normalise_row({**row, "retrieval_source": "chunk_rpc"}) for row in (result.data or [])]
-        except Exception as exc:
-            if "p_law_category" in str(exc) or "p_tenant_id" in str(exc):
-                fallback_params = {key: value for key, value in params.items() if key not in {"p_law_category", "p_tenant_id"}}
-                try:
-                    result = await self._supabase.rpc("hybrid_document_chunk_search", fallback_params).execute()
-                    self._chunk_search_supports_tenant_param = False
-                    return [self._normalise_row({**row, "retrieval_source": "chunk_rpc"}) for row in (result.data or [])]
-                except Exception as fallback_exc:
-                    log.warning("retriever.chunk_search.failed", error=str(fallback_exc))
-                    return []
+        tasks: list[Any] = []
+        legs: list[str] = []
+        if embedding:
+            sem_params = {**base, "query_embedding": embedding}
+            tasks.append(self._supabase.rpc("semantic_document_chunk_search", sem_params).execute())
+            legs.append("semantic")
+        lex_params = {**base, "query_text": fts_query}
+        tasks.append(self._supabase.rpc("lexical_document_chunk_search", lex_params).execute())
+        legs.append("lexical")
 
-            log.warning("retriever.chunk_search.failed", error=str(exc))
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        row_lists: list[list[dict[str, Any]]] = []
+        missing = False
+        for leg, result in zip(legs, results):
+            if isinstance(result, Exception):
+                message = str(result)
+                if self._rpc_missing(message):
+                    missing = True
+                    log.info("retriever.dedicated_rpc.absent", leg=leg)
+                else:
+                    log.warning("retriever.dedicated_rpc.failed", leg=leg, error=message)
+                continue
+            row_lists.append([
+                self._normalise_row({**row, "retrieval_source": f"chunk_{leg}"})
+                for row in (result.data or [])
+            ])
+
+        if missing and not row_lists:
+            self._dedicated_rpcs_available = False
+            return None
+
+        self._dedicated_rpcs_available = True
+        if not row_lists:
             return []
+        merged = self._merge_rows(*row_lists, top_k)
+        log.info(
+            "retriever.semantic_first.ok",
+            results=len(merged),
+            jurisdiction=jurisdiction,
+            legs=",".join(legs),
+        )
+        return merged
+
+    @staticmethod
+    def _rpc_missing(message: str) -> bool:
+        lowered = message.lower()
+        return (
+            "pgrst202" in lowered
+            or "could not find the function" in lowered
+            or "does not exist" in lowered
+            or "schema cache" in lowered
+        )
+
+    async def _hybrid_rpc_search(
+        self,
+        *,
+        query: str,
+        embedding: list[float] | None,
+        jurisdiction: str | None,
+        tenant_id: str | None,
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        settings = get_settings()
+        fts_query = prepare_lao_fts_query(query, jurisdiction=jurisdiction)
+        tenant_scopes = self._keyword_tenant_scopes(tenant_id)
+
+        for scope in tenant_scopes:
+            effective_tenant_id = scope or settings.default_tenant_id
+            params: dict[str, Any] = {
+                "query_text": fts_query,
+                "match_count": top_k,
+                "rrf_k": 60,
+                "p_status": "active",
+                "p_review_status": "approved",
+                "p_tenant_id": effective_tenant_id,
+                "p_law_category": None,
+            }
+            if embedding:
+                params["query_embedding"] = embedding
+            if jurisdiction:
+                params["p_jurisdiction"] = jurisdiction
+
+            try:
+                result = await self._supabase.rpc("hybrid_document_chunk_search", params).execute()
+                self._chunk_search_supports_tenant_param = True
+                rows = [
+                    self._normalise_row({**row, "retrieval_source": "chunk_rpc"})
+                    for row in (result.data or [])
+                ]
+                if rows:
+                    return rows
+            except Exception as exc:
+                if "p_law_category" in str(exc) or "p_tenant_id" in str(exc):
+                    fallback_params = {
+                        key: value for key, value in params.items()
+                        if key not in {"p_law_category", "p_tenant_id"}
+                    }
+                    try:
+                        result = await self._supabase.rpc("hybrid_document_chunk_search", fallback_params).execute()
+                        self._chunk_search_supports_tenant_param = False
+                        rows = [
+                            self._normalise_row({**row, "retrieval_source": "chunk_rpc"})
+                            for row in (result.data or [])
+                        ]
+                        if rows:
+                            return rows
+                    except Exception as fallback_exc:
+                        log.warning("retriever.chunk_search.failed", error=str(fallback_exc), tenant_scope=scope)
+                        continue
+
+                log.warning("retriever.chunk_search.failed", error=str(exc), tenant_scope=scope)
+                continue
+
+        return []
 
     async def _direct_article_search(
         self,

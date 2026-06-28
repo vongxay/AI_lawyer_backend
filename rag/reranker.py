@@ -32,13 +32,18 @@ class Reranker:
         query: str,
         chunks: list[dict[str, Any]],
         top_k: int = 10,
+        focus_titles: list[str] | None = None,
+        focus_terms: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         if not chunks:
             return []
 
+        norm_focus_titles = [normalise_search_text(t) for t in (focus_titles or []) if t and t.strip()]
+        norm_focus_terms = [normalise_search_text(t) for t in (focus_terms or []) if t and t.strip()]
+
         scored: list[tuple[dict[str, Any], float]] = []
         for chunk in chunks:
-            score = self._score(query, chunk)
+            score = self._score(query, chunk, norm_focus_titles, norm_focus_terms)
             scored.append(({**chunk, "_rerank_score": round(score, 4)}, score))
 
         scored.sort(key=lambda x: x[1], reverse=True)
@@ -47,12 +52,19 @@ class Reranker:
         log.debug("reranker.done", input=len(chunks), output=len(result))
         return result
 
-    def _score(self, query: str, chunk: dict[str, Any]) -> float:
+    def _score(
+        self,
+        query: str,
+        chunk: dict[str, Any],
+        focus_titles: list[str] | None = None,
+        focus_terms: list[str] | None = None,
+    ) -> float:
         base_score = self._safe_float(chunk.get("final_score"), default=0.25)
         keyword_boost = self._keyword_boost(query, chunk)
         target_article_boost = self._target_article_boost(query, chunk)
         authority_boost = self._authority_boost(chunk)
         structure_boost = self._structure_boost(chunk)
+        focus_boost = self._focus_boost(chunk, focus_titles, focus_terms)
         quality_penalty = self._quality_penalty(chunk)
         graph_boost = 0.08 if chunk.get("type") == "precedent" else 0.0
         return (
@@ -61,9 +73,70 @@ class Reranker:
             + target_article_boost
             + authority_boost
             + structure_boost
+            + focus_boost
             + graph_boost
             - quality_penalty
         )
+
+    def _focus_boost(
+        self,
+        chunk: dict[str, Any],
+        focus_titles: list[str] | None,
+        focus_terms: list[str] | None,
+    ) -> float:
+        """Boost chunks belonging to the law(s) the question-understanding layer
+        identified, and chunks whose text matches the inferred legal concepts.
+
+        This is what lets a colloquial question reliably land on the correct
+        statute even when the multilingual embedding is weak on Lao."""
+        if not focus_titles and not focus_terms:
+            return 0.0
+
+        title = normalise_search_text(str(chunk.get("title") or ""))
+        title_ns = title.replace(" ", "")
+        boost = 0.0
+
+        if title and focus_titles:
+            for focus in focus_titles:
+                if not focus:
+                    continue
+                focus_ns = focus.replace(" ", "")
+                # The candidate law name and the chunk title refer to the same
+                # statute when one contains the other (allowing for the
+                # "ກົດໝາຍວ່າດ້ວຍ ..." prefix / version suffix and Lao spacing
+                # differences).
+                if (
+                    focus in title
+                    or title in focus
+                    or (len(focus_ns) >= 6 and (focus_ns in title_ns or title_ns in focus_ns))
+                    or self._title_overlap(focus, title)
+                ):
+                    # High-confidence signal: the chunk belongs to the statute the
+                    # question-understanding layer identified for this practice area.
+                    # Make it decisive so the correct law tops even when an
+                    # off-topic chunk has incidental lexical overlap.
+                    boost += 4.0
+                    break
+
+        if focus_terms:
+            content = normalise_search_text(
+                " ".join(str(chunk.get(k) or "") for k in ("title", "section_ref", "content"))
+            )
+            if content:
+                hits = sum(1 for term in focus_terms if term and term in content)
+                boost += min(0.9, hits * 0.3)
+
+        return min(boost, 5.0)
+
+    @staticmethod
+    def _title_overlap(focus: str, title: str) -> bool:
+        focus_tokens = {t for t in focus.split() if len(t) >= 3}
+        title_tokens = {t for t in title.split() if len(t) >= 3}
+        if not focus_tokens or not title_tokens:
+            return False
+        shared = focus_tokens & title_tokens
+        # Strong overlap relative to the (usually short) law name.
+        return len(shared) >= 2 and len(shared) / len(focus_tokens) >= 0.5
 
     def _keyword_boost(self, query: str, chunk: dict[str, Any]) -> float:
         content = " ".join(
